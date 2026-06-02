@@ -1,0 +1,197 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+enum DonorStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum Program {
+  SUPSUP_TODO
+  MILKY_WAY
+  MOMS_ACT
+}
+
+enum BatchStatus {
+  POOLING
+  TESTING
+  PASTEURIZED
+  AVAILABLE
+  DISPENSED
+  DISPOSED
+}
+
+enum LabStage {
+  PRE_PASTEURIZATION
+  POST_PASTEURIZATION
+}
+
+enum LabTestResult {
+  PASS
+  FAIL
+  PENDING
+}
+
+enum SmsStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model User {
+  user_id  Int    @id @default(autoincrement())
+  username String @unique
+  password String
+  role     Role   @default(STAFF)
+
+  donors      Donor[]
+  collections Collection[] @relation("RecordedBy")
+  batches     Batch[]
+  labResults  LabResult[]  @relation("TestedBy")
+  inventory   Inventory[]
+  dispensings Dispensing[]
+  disposals   Disposal[]
+  auditLogs   AuditLog[]
+}
+
+model Donor {
+  donor_id     Int         @id @default(autoincrement())
+  user_id      Int
+  first_name   String
+  last_name    String
+  birthdate    DateTime
+  address      String
+  contact_no   String
+  status       DonorStatus @default(ACTIVE)
+  registration DateTime    @default(now())
+
+  user        User         @relation(fields: [user_id], references: [user_id])
+  collections Collection[]
+}
+
+model Beneficiary {
+  beneficiary_id Int     @id @default(autoincrement())
+  contact_no     String
+  remarks        String?
+
+  dispensings Dispensing[]
+  sms         SMS[]
+}
+
+model Collection {
+  ctn             Int      @id @default(autoincrement())
+  donor_id        Int
+  recorded_by     Int
+  program         Program
+  collection_date DateTime
+  volume          Float
+  batch_id        Int?
+
+  donor    Donor  @relation(fields: [donor_id], references: [donor_id])
+  recorder User   @relation("RecordedBy", fields: [recorded_by], references: [user_id])
+  batch    Batch? @relation(fields: [batch_id], references: [batch_id])
+}
+
+model Batch {
+  batch_id     Int         @id @default(autoincrement())
+  batch_code   String      @unique
+  pooling_date DateTime
+  total_volume Float
+  status       BatchStatus @default(POOLING)
+  created_by   Int
+  created_at   DateTime    @default(now())
+
+  creator     User         @relation(fields: [created_by], references: [user_id])
+  collections Collection[]
+  labResults  LabResult[]
+  inventory   Inventory?
+  dispensings Dispensing[]
+  disposals   Disposal[]
+}
+
+model LabResult {
+  lab_id    Int           @id @default(autoincrement())
+  batch_id  Int
+  stage     LabStage
+  test_date DateTime
+  result    LabTestResult @default(PENDING)
+  tested_by Int
+  remarks   String?
+
+  batch  Batch @relation(fields: [batch_id], references: [batch_id])
+  tester User  @relation("TestedBy", fields: [tested_by], references: [user_id])
+}
+
+model Inventory {
+  inv_id          Int      @id @default(autoincrement())
+  batch_id        Int      @unique
+  donated_vol     Float
+  pasteurized_vol Float
+  available_vol   Float
+  last_updated    DateTime @updatedAt
+  updated_by      Int
+
+  batch   Batch @relation(fields: [batch_id], references: [batch_id])
+  updater User  @relation(fields: [updated_by], references: [user_id])
+}
+
+model Dispensing {
+  dis_id          Int      @id @default(autoincrement())
+  batch_id        Int
+  beneficiary_id  Int
+  dispensed_by    Int
+  dispensing_date DateTime
+  volume          Float
+  price           Float
+  total           Float
+  remarks         String?
+
+  batch       Batch       @relation(fields: [batch_id], references: [batch_id])
+  beneficiary Beneficiary @relation(fields: [beneficiary_id], references: [beneficiary_id])
+  dispenser   User        @relation(fields: [dispensed_by], references: [user_id])
+}
+
+model Disposal {
+  disposal_id   Int      @id @default(autoincrement())
+  batch_id      Int
+  disposal_date DateTime
+  reason        String
+  volume        Float
+  disposed_by   Int
+  remarks       String?
+
+  batch    Batch @relation(fields: [batch_id], references: [batch_id])
+  disposer User  @relation(fields: [disposed_by], references: [user_id])
+}
+
+model SMS {
+  sms_id         Int       @id @default(autoincrement())
+  beneficiary_id Int
+  message        String
+  status         SmsStatus @default(PENDING)
+  scheduled_at   DateTime
+  sent_at        DateTime?
+  retry          Int       @default(0)
+
+  beneficiary Beneficiary @relation(fields: [beneficiary_id], references: [beneficiary_id])
+}
+
+model AuditLog {
+  log_id         Int      @id @default(autoincrement())
+  user_id        Int
+  action_date    DateTime @default(now())
+  action_details String
+
+  user User @relation(fields: [user_id], references: [user_id])
+}

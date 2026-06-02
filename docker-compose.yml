@@ -1,0 +1,15 @@
+services:
+  db:
+    image: supabase/postgres:latest
+    container_name: hmbms-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hmbms_local
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
