@@ -604,3 +604,84 @@ If a `$transaction` callback throws, Prisma automatically rolls back all operati
 | TypeScript | Strict mode. No `any`. No `@ts-ignore`. No `@ts-expect-error` unless justified |
 | Comments | Only when business logic is non-obvious. No boilerplate comments |
 | Console logging | Forbidden in production code. Use `AuditLog` for observability |
+
+---
+
+## 12. Git Worktree Workflow for Parallel Feature Execution
+
+### Overview
+
+The human Architect orchestrates parallel feature development using Git worktrees. Each worktree is an isolated checkout on its own branch, enabling multiple agents to work on different FSD domains simultaneously without merge conflicts.
+
+### Worktree Creation
+
+The Architect spawns isolated branches using:
+
+```bash
+git worktree add ../agent-workspaces/feature-[domain-name] -b feature/[domain-name]
+```
+
+Examples:
+```bash
+git worktree add ../agent-workspaces/feature-donors -b feature/donors
+git worktree add ../agent-workspaces/feature-collections -b feature/collections
+git worktree add ../agent-workspaces/feature-inventory -b feature/inventory
+```
+
+### Parallel IDE Windows
+
+Each worktree is opened in its own VS Code window. The Architect:
+
+1. Opens the worktree folder as a new VS Code window
+2. Assigns a Custom Mode (from `.kilo/modes/`) to the agent in that window
+3. Provides the task blueprint based on the FSD domain assignment
+
+### Custom Mode Assignment
+
+| Domain | Recommended Mode | Reason |
+|---|---|---|
+| `donors` — UI tables, forms | `feature-ui-builder` | Component-heavy domain |
+| `donors` — server actions | `prisma-db-engine` | Data access layer |
+| `collections` — workflow logic | `prisma-db-engine` | Complex transactional operations |
+| `laboratory` — test results | `prisma-db-engine` | Lab result recording |
+| `inventory` — stock tracking | `prisma-db-engine` | Inventory deductions |
+| `dispensing` — dispensing UI | `feature-ui-builder` | Form-heavy interface |
+| `dispensing` — transactions | `prisma-db-engine` | Atomic inventory + dispensing |
+| Any domain — Zod schemas | `domain-tester` | Validation contracts |
+
+### Database Isolation
+
+Each worktree can run its own local Supabase instance on a different port to avoid conflicts:
+
+| Worktree | DB Port | Container Name |
+|---|---|---|
+| `feature-donors` | 5432 | `hmbms-donors-db` |
+| `feature-collections` | 5433 | `hmbms-collections-db` |
+| `feature-inventory` | 5434 | `hmbms-inventory-db` |
+
+Update the worktree's `.env`:
+```
+DATABASE_URL="postgresql://postgres:postgres@localhost:{PORT}/hmbms_local?schema=public"
+```
+
+### Integration Workflow
+
+1. Each agent completes its feature slice independently
+2. The Architect reviews each worktree's changes
+3. Changes are merged into the main branch one domain at a time
+4. Schema changes are merged first (if any), then application code
+5. The Architect resolves any cross-domain integration issues
+
+### Conflict Prevention
+
+- Agents work strictly within their assigned `src/features/[domain]/` directory
+- Shared types or utilities go in `src/core/utils/` (coordinated by the Architect)
+- Schema changes are centralized on the main branch before feature branches diverge
+- Never use `git stash` across worktrees — stashes are shared globally
+
+### Cleanup
+
+After merging, remove the worktree:
+```bash
+git worktree remove ../agent-workspaces/feature-[domain-name]
+```

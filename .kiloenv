@@ -1,0 +1,15 @@
+{
+  "KILO_AUTO_APPROVE_COMMANDS": [
+    "npx prisma format",
+    "npx prisma generate",
+    "npx prisma db push",
+    "npx supabase start",
+    "npm run typecheck"
+  ],
+  "KILO_ENV_NOTES": {
+    "description": "Local environment configuration for Kilo Code terminal automation.",
+    "auto_approve": "Commands in KILO_AUTO_APPROVE_COMMANDS are executed without confirmation prompts. Only include safe, local-only, non-destructive commands.",
+    "dynamic_database_url": "When running parallel worktrees, each worktree needs its own DATABASE_URL. Derive the port from the worktree name or use a port-offset convention. Example: feature-donors -> 5432, feature-collections -> 5433, etc. Update the worktree's .env file accordingly before running prisma commands.",
+    "docker_compose": "Each worktree can spin up its own Docker instance with a unique container name and port: docker compose -p hmbms-[domain] up -d --scale db=1"
+  }
+}

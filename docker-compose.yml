@@ -1,6 +1,6 @@
 services:
   db:
-    image: supabase/postgres:latest
+    image: supabase/postgres:15.1.0.117
     container_name: hmbms-db
     restart: unless-stopped
     ports:
