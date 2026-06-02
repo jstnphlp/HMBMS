@@ -50,10 +50,11 @@ enum SmsStatus {
 }
 
 model User {
-  user_id  Int    @id @default(autoincrement())
-  username String @unique
-  password String
-  role     Role   @default(STAFF)
+  user_id  Int     @id @default(autoincrement())
+  auth_id  String  @unique
+  email    String  @unique
+  password String?
+  role     Role    @default(STAFF)
 
   donors      Donor[]
   collections Collection[] @relation("RecordedBy")
