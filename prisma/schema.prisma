@@ -10,6 +10,7 @@ datasource db {
 enum Role {
   ADMIN
   STAFF
+  DONOR
 }
 
 enum DonorStatus {
@@ -74,6 +75,7 @@ model Donor {
   birthdate    DateTime
   address      String
   contact_no   String
+  civil_status String
   status       DonorStatus @default(ACTIVE)
   registration DateTime    @default(now())
 
