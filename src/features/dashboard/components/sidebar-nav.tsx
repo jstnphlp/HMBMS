@@ -28,7 +28,7 @@ const mainNav: NavItem[] = [
   { label: "Recipients", href: "/dashboard/recipients", icon: Baby },
   { label: "Lab Tests", href: "/dashboard/laboratory", icon: FlaskConical },
   { label: "Distribution", href: "/dashboard/dispensing", icon: Truck },
-  { label: "Reporting", href: "/dashboard/reports", icon: BarChart3 },
+  { label: "Reporting", href: "/dashboard/analytics", icon: BarChart3 },
 ];
 
 const bottomNav: NavItem[] = [
