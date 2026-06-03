@@ -23,7 +23,7 @@ interface NavItem {
 }
 
 const mainNav: NavItem[] = [
-  { label: "Inventory", href: "/dashboard", icon: Droplets },
+  { label: "Inventory", href: "/dashboard/inventory", icon: Droplets },
   { label: "Donors", href: "/dashboard/donors", icon: Users },
   { label: "Recipients", href: "/dashboard/recipients", icon: Baby },
   { label: "Lab Tests", href: "/dashboard/laboratory", icon: FlaskConical },
@@ -92,7 +92,7 @@ export function SidebarNav() {
           <SidebarLink
             key={item.href}
             item={item}
-            active={pathname === item.href}
+            active={pathname === item.href || pathname.startsWith(item.href + "/")}
           />
         ))}
       </ul>
@@ -103,7 +103,7 @@ export function SidebarNav() {
           <SidebarLink
             key={item.href}
             item={item}
-            active={pathname === item.href}
+            active={pathname === item.href || pathname.startsWith(item.href + "/")}
           />
         ))}
       </ul>

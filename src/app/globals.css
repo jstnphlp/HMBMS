@@ -42,16 +42,16 @@
 }
 
 :root {
-  /* Clinical Compassion — Light Theme (DESIGN.md + Stitch MCP) */
+  /* Clinical Compassion — Light Theme (Stitch MCP: Makati Milk Bank System) */
   --background: #f8f9ff;
   --foreground: #0b1c30;
-  --card: #ffffff;
+  --card: #e5eeff;
   --card-foreground: #0b1c30;
   --popover: #ffffff;
   --popover-foreground: #0b1c30;
   --primary: #006194;
   --primary-foreground: #ffffff;
-  --secondary: #e5eeff;
+  --secondary: #dce9ff;
   --secondary-foreground: #004b73;
   --muted: #eff4ff;
   --muted-foreground: #3f4850;
@@ -60,7 +60,7 @@
   --destructive: #ba1a1a;
   --destructive-foreground: #ffffff;
   --border: #bfc7d2;
-  --input: #bfc7d2;
+  --input: #d3e4fe;
   --ring: #006194;
   --chart-1: #006194;
   --chart-2: #007bb9;

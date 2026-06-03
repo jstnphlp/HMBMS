@@ -94,20 +94,24 @@ You consume primitives from `src/core/ui/` — you never modify them.
 
 ## Stitch MCP Reference
 
-Available tools (prefixed `stitch_` in MCP calls):
+All 14 available tools (prefixed `stitch_` in MCP calls):
 
-| Tool | When to use |
+| Tool | Description |
 |---|---|
-| `generate_screen_from_text` | Generate a UI design from a text prompt. Returns a screen ID. |
-| `get_screen` | Retrieve screen details including `htmlCode`. Poll until `status` is `COMPLETE`. |
-| `list_screens` | List existing screens in a project. |
-| `create_project` | Create a new project container for designs. |
-| `list_projects` | List existing projects. |
-| `generate_variants` | Generate alternative design variants of a screen. |
-| `edit_screens` | Modify an existing screen with a new prompt. |
-| `create_design_system` | Create a reusable design system (colors, typography, spacing). |
-| `list_design_systems` | List design systems. |
-| `apply_design_system` | Apply a design system to a project for consistent theming. |
+| `create_project` | Create a new project container for UI designs. |
+| `get_project` | Retrieve details of a specific project by ID. |
+| `list_projects` | List all existing projects in the Stitch workspace. |
+| `list_screens` | List all screens within a project. |
+| `get_screen` | Retrieve a specific screen including `htmlCode`, `screenshot`, and `status`. Poll until `status` is `COMPLETE`. |
+| `generate_screen_from_text` | Generate a new UI screen from a text prompt. Returns a screen ID. Use for initial design generation. |
+| `edit_screens` | Modify an existing screen with a new prompt. Use for iterative refinements. |
+| `generate_variants` | Generate alternative design variants of an existing screen. |
+| `upload_design_md` | Upload a markdown design specification file to a project. |
+| `create_design_system` | Create a new reusable design system (colors, typography, spacing, roundness). |
+| `create_design_system_from_design_md` | Generate a design system from an uploaded markdown spec. |
+| `update_design_system` | Update an existing design system's tokens. |
+| `list_design_systems` | List all available design systems in the workspace. |
+| `apply_design_system` | Apply a design system to a project for consistent theming across all screens. |
 
 ## Workflow
 
