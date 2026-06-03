@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/core/utils/supabase/server";
+import { db } from "@/core/db";
 import { loginSchema } from "./schemas";
 
 export async function login(formData: FormData) {
@@ -38,4 +39,26 @@ export async function logout() {
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/login");
+}
+
+export async function getCurrentUser() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const dbUser = await db.user.findUnique({
+    where: { auth_id: user.id },
+    select: {
+      user_id: true,
+      email: true,
+      role: true,
+    },
+  });
+
+  return dbUser;
 }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import { login } from "../actions";
 import { Button } from "@/core/ui/button";
 import { Input } from "@/core/ui/input";
@@ -18,13 +19,11 @@ export function LoginForm() {
   const searchParams = useSearchParams();
   const redirectedFrom = searchParams.get("redirectedFrom");
   const [errors, setErrors] = useState<Record<string, string[]> | null>(null);
-  const [generalError, setGeneralError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   async function handleSubmit(formData: FormData) {
     setPending(true);
     setErrors(null);
-    setGeneralError(null);
 
     const result = await login(formData);
 
@@ -33,7 +32,7 @@ export function LoginForm() {
         setErrors(result.errors as Record<string, string[]>);
       }
       if ("error" in result && result.error) {
-        setGeneralError(result.error as string);
+        toast.error(result.error as string);
       }
       setPending(false);
     }
@@ -81,11 +80,7 @@ export function LoginForm() {
               )}
             </div>
 
-            {generalError && (
-              <p className="text-sm text-destructive">{generalError}</p>
-            )}
-
-            {redirectedFrom && !generalError && !errors && (
+            {redirectedFrom && !errors && (
               <p className="text-sm text-muted-foreground">
                 You must log in to access that page.
               </p>
