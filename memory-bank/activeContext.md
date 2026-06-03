@@ -10,9 +10,10 @@
 | Field | Value |
 |---|---|
 | **FSD Domain** | `inventory` |
+| **FSD Domain** | `analytics` |
 | **Custom Mode** | `feature-ui-builder` |
-| **Branch** | `feature/inventory-ui` |
-| **Worktree Path** | `../agent-workspaces/feature-inventory-ui` |
+| **Branch** | `feature/login-ui-refactor` |
+| **Worktree Path** | `../agent-workspaces/feature-login-ui-refactor` |
 | **Execution Method** | Kilo Code CLI (feature-ui-builder mode) |
 
 ---
@@ -21,12 +22,12 @@
 
 | Field | Value |
 |---|---|
-| **API URL** | `http://localhost:14321` |
-| **DB Port** | `14322` |
-| **Studio URL** | `http://localhost:14323` |
+| **API URL** | `http://localhost:8785` |
+| **DB Port** | `8786` |
+| **Studio URL** | `http://localhost:8787` |
 | **Anon Key** | Check `.env` for `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
 
-Ports remapped to 1432x to avoid collision with other worktrees.
+Ports auto-assigned by Supabase CLI to avoid collision with other worktrees.
 
 ---
 
@@ -54,6 +55,6 @@ Ports remapped to 1432x to avoid collision with other worktrees.
 
 ## Notes
 
-**Current Task:** Build the unified Inventory UI by querying the Stitch MCP server for both the "Disposal Management" and "Milk Collection Management" designs, combining them into a single comprehensive ledger.
+**Current Task:** Refactor the UI of the login page to align strictly with the light theme tokens from the Stitch MCP server, entirely removing grayscale color usage.
 
 The agent MUST always explicitly refer to and enforce the rules within AGENTS.md and DESIGN.md.
