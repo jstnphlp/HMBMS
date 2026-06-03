@@ -9,10 +9,11 @@
 
 | Field | Value |
 |---|---|
-| **FSD Domain** | `[donors \| collections \| laboratory \| inventory \| dispensing \| disposal \| sms \| audit]` |
-| **Custom Mode** | `[feature-ui-builder \| prisma-db-engine \| domain-tester]` |
-| **Branch** | `feature/[domain-name]` |
-| **Worktree Path** | `../agent-workspaces/feature-[name]` |
+| **FSD Domain** | `auth` |
+| **Custom Mode** | `feature-ui-builder` |
+| **Branch** | `feature/login-ui-refactor` |
+| **Worktree Path** | `../agent-workspaces/feature-login-ui-refactor` |
+| **Execution Method** | Kilo Code CLI (feature-ui-builder mode) |
 
 ---
 
@@ -20,33 +21,12 @@
 
 | Field | Value |
 |---|---|
-| **API URL** | `http://localhost:54321` |
-| **DB Port** | `5432` |
-| **Studio URL** | `http://localhost:54323` |
+| **API URL** | `http://localhost:8785` |
+| **DB Port** | `8786` |
+| **Studio URL** | `http://localhost:8787` |
 | **Anon Key** | Check `.env` for `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
-| **Docker Container** | `hmbms-db` (supabase/postgres:15.1.0.117) |
 
-### Dynamic Port Binding (Parallel Worktrees)
-
-When running multiple worktrees simultaneously, each worktree needs its own database instance. Derive the port from the worktree path:
-
-```powershell
-# Extract a numeric suffix from the worktree path for port offset
-$port = 5432 + [int](Get-Hash -String (Get-Location).Path -Algorithm MD5).Substring(0,4)
-```
-
-Or use a simpler convention:
-
-| Worktree | DB Port | Supabase API Port |
-|---|---|---|
-| `feature-donors` | 5432 | 54321 |
-| `feature-collections` | 5433 | 54322 |
-| `feature-inventory` | 5434 | 54323 |
-
-Update `.env` in each worktree:
-```
-DATABASE_URL="postgresql://postgres:postgres@localhost:{PORT}/hmbms_local?schema=public"
-```
+Ports auto-assigned by Supabase CLI to avoid collision with other worktrees.
 
 ---
 
@@ -74,4 +54,6 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:{PORT}/hmbms_local?schema
 
 ## Notes
 
-<!-- Agent-specific notes go here -->
+**Current Task:** Refactor the UI of the login page to align strictly with the light theme tokens from the Stitch MCP server, entirely removing grayscale color usage.
+
+The agent MUST always explicitly refer to and enforce the rules within AGENTS.md and DESIGN.md.
