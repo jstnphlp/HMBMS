@@ -185,6 +185,7 @@ async function main() {
   console.log("Creating beneficiaries...");
   const ben1 = await prisma.beneficiary.create({
     data: {
+      name: "Baby Sofia Dela Cruz",
       contact_no: "09175678901",
       remarks: "NICU patient, premature twin A",
     },
@@ -192,6 +193,7 @@ async function main() {
 
   const ben2 = await prisma.beneficiary.create({
     data: {
+      name: "Baby Mateo Reyes",
       contact_no: "09176789012",
       remarks: "Outpatient, low birth weight infant",
     },
@@ -199,6 +201,7 @@ async function main() {
 
   const ben3 = await prisma.beneficiary.create({
     data: {
+      name: "Makati General Hospital NICU",
       contact_no: "09177890123",
       remarks: null,
     },

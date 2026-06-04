@@ -88,6 +88,7 @@ export async function createBeneficiary(rawInput: unknown) {
   try {
     const beneficiary = await db.beneficiary.create({
       data: {
+        name: input.name,
         contact_no: input.contact_no,
         remarks: input.remarks,
       },
