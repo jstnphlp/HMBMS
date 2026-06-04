@@ -1,6 +1,6 @@
 # Active Context
 
-> Tracking state for the `feature/distribution-ui` worktree.
+> Tracking state for the `feature/recipient-ui` worktree.
 
 ---
 
@@ -8,10 +8,10 @@
 
 | Field | Value |
 |---|---|
-| **FSD Domain** | `laboratory` |
+| **FSD Domain** | `recipients` |
 | **Custom Mode** | `feature-ui-builder` |
-| **Branch** | `feature/laboratory-ui` |
-| **Worktree Path** | `../agent-workspaces/feature-laboratory-ui` |
+| **Branch** | `feature/recipient-ui` |
+| **Worktree Path** | `../agent-workspaces/feature-recipient-ui` |
 | **Execution Method** | Kilo Code CLI (feature-ui-builder mode) |
 
 ---
@@ -20,12 +20,12 @@
 
 | Field | Value |
 |---|---|
-| **API URL** | `http://localhost:55421` |
-| **DB Port** | `55422` |
-| **Studio URL** | `http://localhost:55423` |
+| **API URL** | `http://127.0.0.1:64321` |
+| **DB Port** | `64322` |
+| **Studio URL** | `http://127.0.0.1:64323` |
 | **Anon Key** | Check `.env` for `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
 
-Ports remapped to 5542x to avoid collision with other worktrees.
+Ports remapped to 6432x to avoid collision with primary workspace.
 
 ---
 
@@ -33,12 +33,12 @@ Ports remapped to 5542x to avoid collision with other worktrees.
 
 ### Completed
 
-- [ ] Schema changes (`prisma/schema.prisma`)
-- [ ] Zod schemas (`src/features/dispensing/schemas.ts`)
-- [ ] Server actions (`src/features/dispensing/actions.ts`)
-- [ ] Read queries (`src/features/dispensing/queries.ts`)
-- [ ] UI components (`src/features/dispensing/components/`)
-- [ ] Route wrapper (`src/app/dashboard/dispensing/page.tsx`)
+- [ ] Schema changes (`prisma/schema.prisma`) — expand `Beneficiary` model if needed
+- [ ] Zod schemas (`src/features/recipients/schemas.ts`)
+- [ ] Server actions (`src/features/recipients/actions.ts`)
+- [ ] Read queries (`src/features/recipients/queries.ts`)
+- [ ] UI components (`src/features/recipients/components/`)
+- [ ] Route wrapper (`src/app/dashboard/recipients/page.tsx`)
 
 ### Verification Checklist
 
@@ -53,7 +53,7 @@ Ports remapped to 5542x to avoid collision with other worktrees.
 
 ## Notes
 
-**Current Task:** Build the Laboratory Quality Control UI (Pre and Post-Pasteurization) by dynamically querying the Makati Milk Bank System project on the Stitch MCP server for exact design tokens, enforcing a light theme, and removing all grayscale colors.
+**Current Task:** Build the Recipient / Beneficiary Management UI by dynamically querying the Makati Milk Bank System project on the Stitch MCP server for exact design tokens, enforcing a light theme, and removing all grayscale colors.
 
 **Stitch Project:** `Makati Milk Bank System` — use `list_projects` to find it, then query screens and design tokens from that project.
 
