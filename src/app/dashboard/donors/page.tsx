@@ -7,9 +7,16 @@ import { DonorMetricCards } from "@/features/donors/components/donor-metric-card
 import { DonorRegistry } from "@/features/donors/components/donor-registry";
 import type { DonorDetail } from "@/features/donors/queries";
 
-export default async function DonorsPage() {
+interface DonorsPageProps {
+  searchParams: Promise<{ query?: string }>;
+}
+
+export default async function DonorsPage({ searchParams }: DonorsPageProps) {
+  const params = await searchParams;
+  const query = params.query ?? "";
+
   const [donors, metrics] = await Promise.all([
-    getDonorsWithStats(),
+    getDonorsWithStats(query || undefined),
     getDonorMetrics(),
   ]);
 
@@ -31,7 +38,11 @@ export default async function DonorsPage() {
         </h1>
       </div>
       <DonorMetricCards metrics={metrics} />
-      <DonorRegistry donors={donors} donorDetails={donorDetails} />
+      <DonorRegistry
+        donors={donors}
+        donorDetails={donorDetails}
+        searchQuery={query}
+      />
     </div>
   );
 }

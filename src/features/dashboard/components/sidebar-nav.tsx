@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/core/utils/cn";
-import { Button } from "@/core/ui/button";
 import {
   Droplets,
   Users,
@@ -14,7 +13,6 @@ import {
   Settings,
   HelpCircle,
   LogOut,
-  Plus,
 } from "lucide-react";
 
 interface NavItem {
@@ -78,14 +76,6 @@ export function SidebarNav() {
         <p className="text-xs leading-4 font-medium tracking-wide text-muted-foreground">
           Station 04-B
         </p>
-      </div>
-
-      {/* New Log button */}
-      <div className="mb-4 px-4">
-        <Button className="w-full gap-2 rounded-sm text-xs font-medium uppercase tracking-wider">
-          <Plus className="h-4 w-4" />
-          New Log
-        </Button>
       </div>
 
       {/* Main nav */}

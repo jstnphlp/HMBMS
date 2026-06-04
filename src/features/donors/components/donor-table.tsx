@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import {
   Table,
   TableBody,
@@ -20,15 +21,16 @@ import {
 } from "@/core/ui/select";
 import { Badge } from "@/core/ui/badge";
 import { DonorStatusBadge } from "./donor-status-badge";
-import { ProgramBadge } from "./program-badge";
+import { DonorRegistrationModal } from "./donor-registration-modal";
 import { cn } from "@/core/utils/cn";
-import { Search, Filter, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Filter, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import type { DonorWithStats } from "../queries";
 
 interface DonorTableProps {
   donors: DonorWithStats[];
   selectedDonorId: number | null;
   onSelectDonor: (donorId: number) => void;
+  searchQuery: string;
 }
 
 const PAGE_SIZE = 15;
@@ -37,27 +39,49 @@ export function DonorTable({
   donors,
   selectedDonorId,
   onSelectDonor,
+  searchQuery,
 }: DonorTableProps) {
-  const [search, setSearch] = useState("");
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const [localSearch, setLocalSearch] = useState(searchQuery);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
+  const [registrationOpen, setRegistrationOpen] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const filtered = useMemo(() => {
-    return donors.filter((donor) => {
-      const matchesSearch =
-        search === "" ||
-        `${donor.first_name} ${donor.last_name}`
-          .toLowerCase()
-          .includes(search.toLowerCase()) ||
-        donor.donor_id.toString().includes(search) ||
-        donor.contact_no.includes(search);
+  const updateSearchParam = useCallback(
+    (value: string) => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+      debounceRef.current = setTimeout(() => {
+        const params = new URLSearchParams(searchParams.toString());
+        if (value) {
+          params.set("query", value);
+        } else {
+          params.delete("query");
+        }
+        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      }, 300);
+    },
+    [searchParams, router, pathname]
+  );
 
-      const matchesStatus =
-        statusFilter === "all" || donor.status === statusFilter;
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
 
-      return matchesSearch && matchesStatus;
-    });
-  }, [donors, search, statusFilter]);
+  const filtered = donors.filter((donor) => {
+    const matchesStatus =
+      statusFilter === "all" || donor.status === statusFilter;
+    return matchesStatus;
+  });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice(
@@ -79,9 +103,10 @@ export function DonorTable({
   }
 
   return (
-    <section className="flex-[2] flex flex-col bg-surface border border-border rounded-lg overflow-hidden min-w-[500px]">
-      {/* Toolbar */}
-      <div className="p-3 border-b border-border bg-card flex justify-between items-center gap-4 shrink-0">
+    <>
+      <section className="flex-[2] flex flex-col bg-surface border border-border rounded-lg overflow-hidden min-w-[500px]">
+        {/* Toolbar */}
+        <div className="p-3 border-b border-border bg-card flex justify-between items-center gap-4 shrink-0">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-foreground">
             Donor Registry
@@ -91,13 +116,24 @@ export function DonorTable({
           </Badge>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            onClick={() => setRegistrationOpen(true)}
+          >
+            <Plus className="size-3.5" />
+            Add Donor
+          </Button>
           <div className="relative max-w-[200px]">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground size-3.5" />
             <Input
-              value={search}
+              value={localSearch}
               onChange={(e) => {
-                setSearch(e.target.value);
+                const val = e.target.value;
+                setLocalSearch(val);
                 setPage(1);
+                updateSearchParam(val);
               }}
               placeholder="Search donors..."
               className="h-8 pl-8 text-xs bg-surface border-border"
@@ -142,16 +178,19 @@ export function DonorTable({
                 Name
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
-                Status
+                Birthdate
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
-                Program
+                Address
               </TableHead>
-              <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold text-right">
-                Last Donation
+              <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
+                Contact No.
               </TableHead>
-              <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold text-right">
-                Total Vol (mL)
+              <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
+                Civil Status
+              </TableHead>
+              <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
+                Status
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -178,24 +217,27 @@ export function DonorTable({
                     {donor.first_name} {donor.last_name}
                   </div>
                 </TableCell>
+                <TableCell className="py-2.5 px-3 text-[13px] text-muted-foreground">
+                  {formatDate(donor.birthdate)}
+                </TableCell>
+                <TableCell className="py-2.5 px-3 text-[13px] text-muted-foreground max-w-[200px] truncate">
+                  {donor.address}
+                </TableCell>
+                <TableCell className="py-2.5 px-3 text-[13px] text-muted-foreground">
+                  {donor.contact_no}
+                </TableCell>
+                <TableCell className="py-2.5 px-3 text-[13px] text-muted-foreground">
+                  {donor.civil_status}
+                </TableCell>
                 <TableCell className="py-2.5 px-3">
                   <DonorStatusBadge status={donor.status} />
-                </TableCell>
-                <TableCell className="py-2.5 px-3">
-                  <ProgramBadge program={donor.program} />
-                </TableCell>
-                <TableCell className="py-2.5 px-3 text-[13px] text-muted-foreground text-right">
-                  {formatDate(donor.last_donation)}
-                </TableCell>
-                <TableCell className="py-2.5 px-3 text-[13px] font-semibold text-foreground text-right">
-                  {donor.total_volume.toLocaleString()}
                 </TableCell>
               </TableRow>
             ))}
             {paginated.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={7}
                   className="py-12 text-center text-muted-foreground text-sm"
                 >
                   No donors found matching your criteria.
@@ -210,11 +252,9 @@ export function DonorTable({
       <div className="p-3 border-t border-border bg-card flex justify-between items-center shrink-0">
         <span className="text-xs text-muted-foreground">
           Showing{" "}
-          {filtered.length === 0
-            ? 0
-            : (page - 1) * PAGE_SIZE + 1}
-          –{Math.min(page * PAGE_SIZE, filtered.length)} of{" "}
-          {filtered.length} donors
+          {filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–
+          {Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}{" "}
+          donors
         </span>
         <div className="flex items-center gap-1">
           <Button
@@ -256,6 +296,11 @@ export function DonorTable({
           </Button>
         </div>
       </div>
-    </section>
+      </section>
+      <DonorRegistrationModal
+        open={registrationOpen}
+        onOpenChange={setRegistrationOpen}
+      />
+    </>
   );
 }

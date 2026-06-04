@@ -68,16 +68,30 @@ model User {
 }
 
 model Donor {
-  donor_id     Int         @id @default(autoincrement())
-  user_id      Int
-  first_name   String
-  last_name    String
-  birthdate    DateTime
-  address      String
-  contact_no   String
-  civil_status String
-  status       DonorStatus @default(ACTIVE)
-  registration DateTime    @default(now())
+  donor_id            Int         @id @default(autoincrement())
+  user_id             Int
+  first_name          String
+  middle_name         String?
+  last_name           String
+  birthdate           DateTime
+  address             String
+  contact_no          String
+  civil_status        String
+  religion            String?
+  occupation          String?
+  spouse_name         String?
+  spouse_occupation   String?
+  spouse_contact_no   String?
+  delivery_date       DateTime?
+  delivery_place      String?
+  delivery_type       String?
+  aog                 String?
+  infant_name         String?
+  infant_birthdate    DateTime?
+  infant_sex          String?
+  infant_birth_weight String?
+  status              DonorStatus @default(ACTIVE)
+  registration        DateTime    @default(now())
 
   user        User         @relation(fields: [user_id], references: [user_id])
   collections Collection[]

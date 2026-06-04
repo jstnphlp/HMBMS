@@ -38,8 +38,24 @@ export interface DonorMetrics {
   new_this_month: number;
 }
 
-export async function getDonorsWithStats(): Promise<DonorWithStats[]> {
+export async function getDonorsWithStats(
+  searchQuery?: string
+): Promise<DonorWithStats[]> {
+  const where = searchQuery
+    ? {
+        OR: [
+          { first_name: { contains: searchQuery, mode: "insensitive" as const } },
+          { last_name: { contains: searchQuery, mode: "insensitive" as const } },
+          { contact_no: { contains: searchQuery } },
+          ...(isNaN(Number(searchQuery))
+            ? []
+            : [{ donor_id: Number(searchQuery) }]),
+        ],
+      }
+    : {};
+
   const donors = await db.donor.findMany({
+    where,
     include: {
       collections: {
         orderBy: { collection_date: "desc" },
