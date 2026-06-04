@@ -1,7 +1,6 @@
 # Active Context
 
-> Template for tracking the current worktree's state.  
-> Each agent worktree should maintain its own copy of this file.
+> Tracking state for the `feature/distribution-ui` worktree.
 
 ---
 
@@ -9,11 +8,10 @@
 
 | Field | Value |
 |---|---|
-| **FSD Domain** | `inventory` |
-| **FSD Domain** | `analytics` |
+| **Active Domain** | `dispensing` |
 | **Custom Mode** | `feature-ui-builder` |
-| **Branch** | `feature/login-ui-refactor` |
-| **Worktree Path** | `../agent-workspaces/feature-login-ui-refactor` |
+| **Branch** | `feature/distribution-ui` |
+| **Worktree Path** | `../agent-workspaces/feature-distribution-ui` |
 | **Execution Method** | Kilo Code CLI (feature-ui-builder mode) |
 
 ---
@@ -22,12 +20,12 @@
 
 | Field | Value |
 |---|---|
-| **API URL** | `http://localhost:8785` |
-| **DB Port** | `8786` |
-| **Studio URL** | `http://localhost:8787` |
+| **API URL** | `http://localhost:94321` |
+| **DB Port** | `94322` |
+| **Studio URL** | `http://localhost:94323` |
 | **Anon Key** | Check `.env` for `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
 
-Ports remapped to 5442x to avoid collision with other worktrees.
+Ports remapped to 9432x to avoid collision with other worktrees.
 
 ---
 
@@ -36,11 +34,11 @@ Ports remapped to 5442x to avoid collision with other worktrees.
 ### Completed
 
 - [ ] Schema changes (`prisma/schema.prisma`)
-- [ ] Zod schemas (`src/features/[domain]/schemas.ts`)
-- [ ] Server actions (`src/features/[domain]/actions.ts`)
-- [ ] Read queries (`src/features/[domain]/queries.ts`)
-- [ ] UI components (`src/features/[domain]/components/`)
-- [ ] Route wrapper (`src/app/dashboard/[domain]/page.tsx`)
+- [ ] Zod schemas (`src/features/dispensing/schemas.ts`)
+- [ ] Server actions (`src/features/dispensing/actions.ts`)
+- [ ] Read queries (`src/features/dispensing/queries.ts`)
+- [ ] UI components (`src/features/dispensing/components/`)
+- [ ] Route wrapper (`src/app/dashboard/dispensing/page.tsx`)
 
 ### Verification Checklist
 
@@ -55,6 +53,6 @@ Ports remapped to 5442x to avoid collision with other worktrees.
 
 ## Notes
 
-**Current Task:** Refactor the UI of the login page to align strictly with the light theme tokens from the Stitch MCP server, entirely removing grayscale color usage.
+**Current Task:** Build the Distribution / Dispensing UI by dynamically querying the Makati Milk Bank System project on the Stitch MCP server for exact design tokens, enforcing a light theme, and removing all grayscale colors.
 
 The agent MUST always explicitly refer to and enforce the rules within AGENTS.md and DESIGN.md.
