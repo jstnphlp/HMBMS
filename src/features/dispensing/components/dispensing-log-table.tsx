@@ -10,7 +10,7 @@ import {
 } from "@/core/ui/table";
 import { Button } from "@/core/ui/button";
 import { cn } from "@/core/utils/cn";
-import { ListAlt } from "lucide-react";
+import { ClipboardList } from "lucide-react";
 import type { DispensingLogEntry } from "../queries";
 
 interface DispensingLogTableProps {
@@ -33,7 +33,7 @@ export function DispensingLogTable({ logs }: DispensingLogTableProps) {
       {/* Toolbar */}
       <div className="p-4 border-b border-border bg-background flex justify-between items-center">
         <h2 className="text-xs leading-4 font-semibold tracking-wider uppercase text-foreground flex items-center gap-2">
-          <ListAlt className="h-4 w-4 text-primary" />
+          <ClipboardList className="h-4 w-4 text-primary" />
           Dispensing Log
         </h2>
         <Button
