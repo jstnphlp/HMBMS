@@ -1,7 +1,6 @@
 # Active Context
 
-> Template for tracking the current worktree's state.  
-> Each agent worktree should maintain its own copy of this file.
+> Tracking state for the `feature/distribution-ui` worktree.
 
 ---
 
@@ -35,11 +34,11 @@ Ports remapped to 5542x to avoid collision with other worktrees.
 ### Completed
 
 - [ ] Schema changes (`prisma/schema.prisma`)
-- [ ] Zod schemas (`src/features/[domain]/schemas.ts`)
-- [ ] Server actions (`src/features/[domain]/actions.ts`)
-- [ ] Read queries (`src/features/[domain]/queries.ts`)
-- [ ] UI components (`src/features/[domain]/components/`)
-- [ ] Route wrapper (`src/app/dashboard/[domain]/page.tsx`)
+- [ ] Zod schemas (`src/features/dispensing/schemas.ts`)
+- [ ] Server actions (`src/features/dispensing/actions.ts`)
+- [ ] Read queries (`src/features/dispensing/queries.ts`)
+- [ ] UI components (`src/features/dispensing/components/`)
+- [ ] Route wrapper (`src/app/dashboard/dispensing/page.tsx`)
 
 ### Verification Checklist
 

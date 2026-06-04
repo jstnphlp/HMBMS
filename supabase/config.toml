@@ -1,26 +1,26 @@
-# Supabase local config — ports 5542x
+# Supabase local config — ports remapped to 7432x to avoid collision with other worktrees
 
 [api]
 enabled = true
-port = 55421
+port = 74321
 schemas = ["public", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
 [db]
-port = 55422
+port = 74322
 major_version = 15
 
 [studio]
 enabled = true
-port = 55423
+port = 74323
 api_url = "http://localhost"
 
 [inbucket]
 enabled = true
-port = 55424
-smtp_port = 5545
-pop3_port = 55110
+port = 74324
+smtp_port = 7425
+pop3_port = 74110
 
 [auth]
 enabled = true
@@ -31,4 +31,4 @@ enable_signup = true
 
 [analytics]
 enabled = false
-port = 55425
+port = 74325
