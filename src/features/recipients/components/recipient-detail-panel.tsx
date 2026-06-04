@@ -1,28 +1,45 @@
 "use client";
 
+import { useState, useTransition, useRef } from "react";
+import { toast } from "sonner";
 import { Button } from "@/core/ui/button";
 import { Badge } from "@/core/ui/badge";
+import { Input } from "@/core/ui/input";
+import { Label } from "@/core/ui/label";
+import { Textarea } from "@/core/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/core/ui/dialog";
 import { Separator } from "@/core/ui/separator";
 import { RecipientStatusBadge } from "./recipient-status-badge";
 import { cn } from "@/core/utils/cn";
+import { updateRecipient } from "../actions";
 import {
   Phone,
   Edit,
   Droplets,
   History,
   MessageSquare,
+  X,
+  Loader2,
 } from "lucide-react";
 import type { RecipientDetail } from "../queries";
 
 interface RecipientDetailPanelProps {
   recipient: RecipientDetail;
-  className?: string;
+  onClose: () => void;
 }
 
 export function RecipientDetailPanel({
   recipient,
-  className,
+  onClose,
 }: RecipientDetailPanelProps) {
+  const [editOpen, setEditOpen] = useState(false);
+
   function formatDate(date: Date | string | null) {
     if (!date) return "--";
     return new Intl.DateTimeFormat("en-US", {
@@ -43,30 +60,35 @@ export function RecipientDetailPanel({
   }
 
   return (
-    <section
-      className={cn(
-        "col-span-4 bg-surface border border-border rounded-lg shadow-sm flex flex-col h-full overflow-hidden",
-        className
-      )}
-    >
+    <>
       {/* Profile Header */}
       <div className="p-4 border-b border-border bg-card flex justify-between items-start shrink-0">
         <div>
           <h3 className="font-semibold text-lg text-foreground">
-            Recipient Profile
+            {recipient.name}
           </h3>
           <p className="text-xs text-primary font-medium">
             REC-{String(recipient.beneficiary_id).padStart(4, "0")}
           </p>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-primary hover:bg-muted px-2 py-1 h-7 text-xs gap-1 border border-transparent hover:border-border"
-        >
-          <Edit className="size-3.5" />
-          Edit
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground hover:text-primary"
+            onClick={() => setEditOpen(true)}
+          >
+            <Edit className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="text-muted-foreground hover:text-destructive"
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Profile Content */}
@@ -229,6 +251,131 @@ export function RecipientDetailPanel({
           Record Dispensing
         </Button>
       </div>
-    </section>
+
+      <RecipientEditDialog
+        recipient={recipient}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+      />
+    </>
+  );
+}
+
+function RecipientEditDialog({
+  recipient,
+  open,
+  onOpenChange,
+}: {
+  recipient: RecipientDetail;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const formRef = useRef<HTMLFormElement>(null);
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const formData = new FormData(formRef.current!);
+
+    const rawInput = {
+      name: formData.get("name") as string,
+      contact_no: formData.get("contact_no") as string,
+      remarks: formData.get("remarks") as string,
+    };
+
+    startTransition(async () => {
+      const result = await updateRecipient(recipient.beneficiary_id, rawInput);
+
+      if (result.success) {
+        toast.success("Recipient information updated successfully.");
+        onOpenChange(false);
+      } else {
+        const errors = result.errors as Record<string, string[]>;
+        const firstError = Object.values(errors).flat()[0];
+        toast.error(firstError ?? "Failed to update recipient.");
+      }
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto bg-background border-border">
+        <DialogHeader>
+          <DialogTitle className="text-foreground text-lg">
+            Edit Recipient Information
+          </DialogTitle>
+          <DialogDescription className="text-muted-foreground">
+            Update the recipient&apos;s profile details.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="edit-name" className="text-foreground">
+                Recipient Name
+                <span className="text-destructive ml-0.5">*</span>
+              </Label>
+              <Input
+                id="edit-name"
+                name="name"
+                defaultValue={recipient.name}
+                required
+                className="bg-card border-border text-foreground"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-contact" className="text-foreground">
+                Contact Number
+                <span className="text-destructive ml-0.5">*</span>
+              </Label>
+              <Input
+                id="edit-contact"
+                name="contact_no"
+                defaultValue={recipient.contact_no}
+                placeholder="09XXXXXXXXX"
+                required
+                className="bg-card border-border text-foreground"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-remarks" className="text-foreground">
+                Remarks
+                <span className="text-muted-foreground font-normal ml-1">
+                  (Optional)
+                </span>
+              </Label>
+              <Textarea
+                id="edit-remarks"
+                name="remarks"
+                defaultValue={recipient.remarks ?? ""}
+                rows={3}
+                className="bg-card border-border text-foreground"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="border-border text-foreground"
+              onClick={() => onOpenChange(false)}
+              disabled={isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+              disabled={isPending}
+            >
+              {isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+              Save Changes
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

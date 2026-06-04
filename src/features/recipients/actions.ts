@@ -26,6 +26,7 @@ export async function createRecipient(
 
   const beneficiary = await db.beneficiary.create({
     data: {
+      name: input.name,
       contact_no: input.contact_no,
       remarks: input.remarks ?? null,
     },
@@ -61,6 +62,7 @@ export async function updateRecipient(
   await db.beneficiary.update({
     where: { beneficiary_id: beneficiaryId },
     data: {
+      name: input.name,
       contact_no: input.contact_no,
       remarks: input.remarks ?? null,
     },

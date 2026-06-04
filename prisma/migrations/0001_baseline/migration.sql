@@ -22,6 +22,9 @@ CREATE TYPE "LabTestResult" AS ENUM ('PASS', 'FAIL', 'PENDING');
 -- CreateEnum
 CREATE TYPE "SmsStatus" AS ENUM ('PENDING', 'SENT', 'FAILED');
 
+-- CreateEnum
+CREATE TYPE "CollectionStatus" AS ENUM ('PENDING_LAB_TEST', 'READY_FOR_DISPENSING');
+
 -- CreateTable
 CREATE TABLE "User" (
     "user_id" SERIAL NOT NULL,
@@ -38,11 +41,25 @@ CREATE TABLE "Donor" (
     "donor_id" SERIAL NOT NULL,
     "user_id" INTEGER NOT NULL,
     "first_name" TEXT NOT NULL,
+    "middle_name" TEXT,
     "last_name" TEXT NOT NULL,
     "birthdate" TIMESTAMP(3) NOT NULL,
     "address" TEXT NOT NULL,
     "contact_no" TEXT NOT NULL,
     "civil_status" TEXT NOT NULL,
+    "religion" TEXT,
+    "occupation" TEXT,
+    "spouse_name" TEXT,
+    "spouse_occupation" TEXT,
+    "spouse_contact_no" TEXT,
+    "delivery_date" TIMESTAMP(3),
+    "delivery_place" TEXT,
+    "delivery_type" TEXT,
+    "aog" TEXT,
+    "infant_name" TEXT,
+    "infant_birthdate" TIMESTAMP(3),
+    "infant_sex" TEXT,
+    "infant_birth_weight" TEXT,
     "status" "DonorStatus" NOT NULL DEFAULT 'ACTIVE',
     "registration" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -52,6 +69,7 @@ CREATE TABLE "Donor" (
 -- CreateTable
 CREATE TABLE "Beneficiary" (
     "beneficiary_id" SERIAL NOT NULL,
+    "name" TEXT NOT NULL,
     "contact_no" TEXT NOT NULL,
     "remarks" TEXT,
 
@@ -66,6 +84,15 @@ CREATE TABLE "Collection" (
     "program" "Program" NOT NULL,
     "collection_date" TIMESTAMP(3) NOT NULL,
     "volume" DOUBLE PRECISION NOT NULL,
+    "remarks" TEXT,
+    "is_pasteurized" BOOLEAN NOT NULL DEFAULT false,
+    "status" "CollectionStatus" NOT NULL DEFAULT 'PENDING_LAB_TEST',
+    "batch_no" TEXT,
+    "bottle_no" TEXT,
+    "expiration_date" TIMESTAMP(3),
+    "dtn" TEXT,
+    "aob" TEXT,
+    "collected_by" TEXT,
     "batch_id" INTEGER,
 
     CONSTRAINT "Collection_pkey" PRIMARY KEY ("ctn")
@@ -168,6 +195,9 @@ CREATE UNIQUE INDEX "User_auth_id_key" ON "User"("auth_id");
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Collection_bottle_no_key" ON "Collection"("bottle_no");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Batch_batch_code_key" ON "Batch"("batch_code");
 
 -- CreateIndex
@@ -220,3 +250,4 @@ ALTER TABLE "SMS" ADD CONSTRAINT "SMS_beneficiary_id_fkey" FOREIGN KEY ("benefic
 
 -- AddForeignKey
 ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("user_id") ON DELETE RESTRICT ON UPDATE CASCADE;
+

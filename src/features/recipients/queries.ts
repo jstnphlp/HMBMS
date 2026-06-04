@@ -4,6 +4,7 @@ import { db } from "@/core/db";
 
 export interface RecipientWithStats {
   beneficiary_id: number;
+  name: string;
   contact_no: string;
   remarks: string | null;
   total_volume: number;
@@ -61,6 +62,7 @@ export async function getRecipientsWithStats(): Promise<RecipientWithStats[]> {
 
     return {
       beneficiary_id: b.beneficiary_id,
+      name: b.name,
       contact_no: b.contact_no,
       remarks: b.remarks,
       total_volume: totalVolume,
@@ -100,6 +102,7 @@ export async function getRecipientById(
 
   return {
     beneficiary_id: beneficiary.beneficiary_id,
+    name: beneficiary.name,
     contact_no: beneficiary.contact_no,
     remarks: beneficiary.remarks,
     total_volume: totalVolume,

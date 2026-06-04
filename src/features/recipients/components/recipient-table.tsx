@@ -22,13 +22,13 @@ import { Badge } from "@/core/ui/badge";
 import { RecipientStatusBadge, UrgencyBadge } from "./recipient-status-badge";
 import { cn } from "@/core/utils/cn";
 import { Search, Filter, ChevronLeft, ChevronRight, UserPlus } from "lucide-react";
-import Link from "next/link";
 import type { RecipientWithStats } from "../queries";
 
 interface RecipientTableProps {
   recipients: RecipientWithStats[];
   selectedRecipientId: number | null;
   onSelectRecipient: (id: number) => void;
+  onRegisterNew: () => void;
 }
 
 const PAGE_SIZE = 15;
@@ -37,6 +37,7 @@ export function RecipientTable({
   recipients,
   selectedRecipientId,
   onSelectRecipient,
+  onRegisterNew,
 }: RecipientTableProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -49,6 +50,7 @@ export function RecipientTable({
         `REC-${String(r.beneficiary_id).padStart(4, "0")}`
           .toLowerCase()
           .includes(search.toLowerCase()) ||
+        r.name.toLowerCase().includes(search.toLowerCase()) ||
         r.contact_no.includes(search) ||
         (r.remarks ?? "").toLowerCase().includes(search.toLowerCase());
 
@@ -68,7 +70,7 @@ export function RecipientTable({
   );
 
   return (
-    <section className="col-span-8 bg-surface border border-border rounded-lg shadow-sm flex flex-col h-full overflow-hidden">
+    <section className="flex-[2] flex flex-col bg-surface border border-border rounded-lg overflow-hidden min-w-[500px]">
       {/* Toolbar */}
       <div className="p-4 border-b border-border bg-card flex justify-between items-center shrink-0">
         <div className="flex items-center gap-2">
@@ -116,15 +118,14 @@ export function RecipientTable({
             <Filter className="size-3.5" />
             Filter
           </Button>
-          <Link href="/dashboard/recipients/new">
-            <Button
-              size="sm"
-              className="h-8 text-xs gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              <UserPlus className="size-3.5" />
-              Register New
-            </Button>
-          </Link>
+          <Button
+            size="sm"
+            className="h-8 text-xs gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={onRegisterNew}
+          >
+            <UserPlus className="size-3.5" />
+            Register New
+          </Button>
         </div>
       </div>
 
@@ -135,6 +136,9 @@ export function RecipientTable({
             <TableRow className="border-b border-border hover:bg-transparent">
               <TableHead className="py-2 px-4 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
                 Recipient ID
+              </TableHead>
+              <TableHead className="py-2 px-4 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
+                Name
               </TableHead>
               <TableHead className="py-2 px-4 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
                 Contact
@@ -172,6 +176,9 @@ export function RecipientTable({
                   REC-{String(recipient.beneficiary_id).padStart(4, "0")}
                 </TableCell>
                 <TableCell className="py-2.5 px-4 text-[13px] font-medium text-foreground">
+                  {recipient.name}
+                </TableCell>
+                <TableCell className="py-2.5 px-4 text-[13px] font-medium text-foreground">
                   {recipient.contact_no}
                 </TableCell>
                 <TableCell className="py-2.5 px-4 text-[13px] text-muted-foreground max-w-[200px] truncate">
@@ -203,7 +210,7 @@ export function RecipientTable({
             {paginated.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={7}
                   className="py-12 text-center text-muted-foreground text-sm"
                 >
                   No recipients found matching your criteria.
