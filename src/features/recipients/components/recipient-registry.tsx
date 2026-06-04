@@ -27,7 +27,7 @@ export function RecipientRegistry({
 
   return (
     <>
-      <div className="flex gap-6 h-[calc(100vh-13rem)] min-h-0">
+      <div className="flex gap-4 h-[calc(100vh-13rem)] min-h-0">
         <RecipientTable
           recipients={recipients}
           selectedRecipientId={selectedRecipientId}
@@ -36,7 +36,7 @@ export function RecipientRegistry({
         />
 
         {/* Persistent detail container */}
-        <section className="col-span-4 bg-surface border border-border rounded-lg shadow-sm flex flex-col h-full overflow-hidden">
+        <section className="flex-1 min-w-[320px] max-w-[400px] flex flex-col bg-surface border border-border rounded-lg overflow-hidden">
           {selectedDetail ? (
             <RecipientDetailPanel
               recipient={selectedDetail}

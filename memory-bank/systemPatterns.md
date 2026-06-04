@@ -106,7 +106,9 @@ Uses `@prisma/adapter-pg` with `PrismaPg` driver adapter. Connection string from
 1. Edit `prisma/schema.prisma`
 2. `npx prisma format`
 3. `npx prisma generate`
-4. `npx prisma db push`
+4. `npx prisma migrate dev --name <descriptive_name>`
+
+> **⚠️ Never use `npx prisma db push`.** It modifies the database without creating migration files, causing drift that breaks `prisma migrate dev`.
 
 ### Transaction Requirement
 
