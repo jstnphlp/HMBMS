@@ -1,0 +1,15 @@
+-- AlterTable
+ALTER TABLE "Donor" ADD COLUMN     "aog" TEXT,
+ADD COLUMN     "delivery_date" TIMESTAMP(3),
+ADD COLUMN     "delivery_place" TEXT,
+ADD COLUMN     "delivery_type" TEXT,
+ADD COLUMN     "infant_birth_weight" TEXT,
+ADD COLUMN     "infant_birthdate" TIMESTAMP(3),
+ADD COLUMN     "infant_name" TEXT,
+ADD COLUMN     "infant_sex" TEXT,
+ADD COLUMN     "middle_name" TEXT,
+ADD COLUMN     "occupation" TEXT,
+ADD COLUMN     "religion" TEXT,
+ADD COLUMN     "spouse_contact_no" TEXT,
+ADD COLUMN     "spouse_name" TEXT,
+ADD COLUMN     "spouse_occupation" TEXT;

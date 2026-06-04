@@ -5,11 +5,17 @@ import { db } from "@/core/db";
 export interface DonorWithStats {
   donor_id: number;
   first_name: string;
+  middle_name: string | null;
   last_name: string;
   contact_no: string;
   address: string;
   civil_status: string;
   birthdate: Date;
+  religion: string | null;
+  occupation: string | null;
+  spouse_name: string | null;
+  spouse_occupation: string | null;
+  spouse_contact_no: string | null;
   status: "ACTIVE" | "INACTIVE";
   registration: Date;
   program: string | null;
@@ -24,6 +30,16 @@ export interface DonorDetail extends DonorWithStats {
     collection_date: Date;
     volume: number;
     program: string;
+    remarks: string | null;
+    recorded_by_name: string;
+    is_pasteurized: boolean;
+    status: string;
+    batch_no: string | null;
+    bottle_no: string | null;
+    expiration_date: Date | null;
+    dtn: string | null;
+    aob: string | null;
+    collected_by: string | null;
     batch: {
       batch_code: string;
       status: string;
@@ -38,8 +54,24 @@ export interface DonorMetrics {
   new_this_month: number;
 }
 
-export async function getDonorsWithStats(): Promise<DonorWithStats[]> {
+export async function getDonorsWithStats(
+  searchQuery?: string
+): Promise<DonorWithStats[]> {
+  const where = searchQuery
+    ? {
+        OR: [
+          { first_name: { contains: searchQuery, mode: "insensitive" as const } },
+          { last_name: { contains: searchQuery, mode: "insensitive" as const } },
+          { contact_no: { contains: searchQuery } },
+          ...(isNaN(Number(searchQuery))
+            ? []
+            : [{ donor_id: Number(searchQuery) }]),
+        ],
+      }
+    : {};
+
   const donors = await db.donor.findMany({
+    where,
     include: {
       collections: {
         orderBy: { collection_date: "desc" },
@@ -59,11 +91,17 @@ export async function getDonorsWithStats(): Promise<DonorWithStats[]> {
     return {
       donor_id: donor.donor_id,
       first_name: donor.first_name,
+      middle_name: donor.middle_name,
       last_name: donor.last_name,
       contact_no: donor.contact_no,
       address: donor.address,
       civil_status: donor.civil_status,
       birthdate: donor.birthdate,
+      religion: donor.religion,
+      occupation: donor.occupation,
+      spouse_name: donor.spouse_name,
+      spouse_occupation: donor.spouse_occupation,
+      spouse_contact_no: donor.spouse_contact_no,
       status: donor.status,
       registration: donor.registration,
       program: lastCollection?.program ?? null,
@@ -82,7 +120,7 @@ export async function getDonorById(
     include: {
       collections: {
         orderBy: { collection_date: "desc" },
-        include: { batch: true },
+        include: { batch: true, recorder: true },
       },
     },
   });
@@ -98,11 +136,17 @@ export async function getDonorById(
   return {
     donor_id: donor.donor_id,
     first_name: donor.first_name,
+    middle_name: donor.middle_name,
     last_name: donor.last_name,
     contact_no: donor.contact_no,
     address: donor.address,
     civil_status: donor.civil_status,
     birthdate: donor.birthdate,
+    religion: donor.religion,
+    occupation: donor.occupation,
+    spouse_name: donor.spouse_name,
+    spouse_occupation: donor.spouse_occupation,
+    spouse_contact_no: donor.spouse_contact_no,
     status: donor.status,
     registration: donor.registration,
     program: lastCollection?.program ?? null,
@@ -114,6 +158,16 @@ export async function getDonorById(
       collection_date: c.collection_date,
       volume: c.volume,
       program: c.program,
+      remarks: c.remarks,
+      recorded_by_name: c.recorder.email,
+      is_pasteurized: c.is_pasteurized,
+      status: c.status,
+      batch_no: c.batch_no,
+      bottle_no: c.bottle_no,
+      expiration_date: c.expiration_date,
+      dtn: c.dtn,
+      aob: c.aob,
+      collected_by: c.collected_by,
       batch: c.batch
         ? { batch_code: c.batch.batch_code, status: c.batch.status }
         : null,

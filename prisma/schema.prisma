@@ -50,6 +50,11 @@ enum SmsStatus {
   FAILED
 }
 
+enum CollectionStatus {
+  PENDING_LAB_TEST
+  READY_FOR_DISPENSING
+}
+
 model User {
   user_id  Int     @id @default(autoincrement())
   auth_id  String  @unique
@@ -68,16 +73,30 @@ model User {
 }
 
 model Donor {
-  donor_id     Int         @id @default(autoincrement())
-  user_id      Int
-  first_name   String
-  last_name    String
-  birthdate    DateTime
-  address      String
-  contact_no   String
-  civil_status String
-  status       DonorStatus @default(ACTIVE)
-  registration DateTime    @default(now())
+  donor_id            Int         @id @default(autoincrement())
+  user_id             Int
+  first_name          String
+  middle_name         String?
+  last_name           String
+  birthdate           DateTime
+  address             String
+  contact_no          String
+  civil_status        String
+  religion            String?
+  occupation          String?
+  spouse_name         String?
+  spouse_occupation   String?
+  spouse_contact_no   String?
+  delivery_date       DateTime?
+  delivery_place      String?
+  delivery_type       String?
+  aog                 String?
+  infant_name         String?
+  infant_birthdate    DateTime?
+  infant_sex          String?
+  infant_birth_weight String?
+  status              DonorStatus @default(ACTIVE)
+  registration        DateTime    @default(now())
 
   user        User         @relation(fields: [user_id], references: [user_id])
   collections Collection[]
@@ -93,12 +112,21 @@ model Beneficiary {
 }
 
 model Collection {
-  ctn             Int      @id @default(autoincrement())
+  ctn             Int              @id @default(autoincrement())
   donor_id        Int
   recorded_by     Int
   program         Program
   collection_date DateTime
   volume          Float
+  remarks         String?
+  is_pasteurized  Boolean          @default(false)
+  status          CollectionStatus @default(PENDING_LAB_TEST)
+  batch_no        String?
+  bottle_no       String?          @unique
+  expiration_date DateTime?
+  dtn             String?
+  aob             String?
+  collected_by    String?
   batch_id        Int?
 
   donor    Donor  @relation(fields: [donor_id], references: [donor_id])
