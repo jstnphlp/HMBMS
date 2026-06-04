@@ -2,7 +2,7 @@
 
 import { db } from "@/core/db";
 import { revalidatePath } from "next/cache";
-import { registerDonorSchema } from "./schemas";
+import { registerDonorSchema, updateDonorSchema, logDropoffSchema } from "./schemas";
 
 export async function registerDonor(formData: FormData) {
   const raw = {
@@ -78,5 +78,199 @@ export async function registerDonor(formData: FormData) {
   });
 
   revalidatePath("/dashboard/donors");
+  return { success: true };
+}
+
+export async function updateDonor(donorId: number, formData: FormData) {
+  const raw = {
+    first_name: formData.get("first_name") as string,
+    middle_name: formData.get("middle_name") as string,
+    last_name: formData.get("last_name") as string,
+    birthdate: formData.get("birthdate") as string,
+    address: formData.get("address") as string,
+    contact_no: formData.get("contact_no") as string,
+    civil_status: formData.get("civil_status") as string,
+    religion: formData.get("religion") as string,
+    occupation: formData.get("occupation") as string,
+    spouse_name: formData.get("spouse_name") as string,
+    spouse_occupation: formData.get("spouse_occupation") as string,
+    spouse_contact_no: formData.get("spouse_contact_no") as string,
+    status: formData.get("status") as string,
+  };
+
+  const parsed = updateDonorSchema.safeParse(raw);
+
+  if (!parsed.success) {
+    return {
+      success: false,
+      errors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const data = parsed.data;
+
+  await db.donor.update({
+    where: { donor_id: donorId },
+    data: {
+      first_name: data.first_name,
+      middle_name: data.middle_name || null,
+      last_name: data.last_name,
+      birthdate: data.birthdate,
+      address: data.address,
+      contact_no: data.contact_no,
+      civil_status: data.civil_status,
+      religion: data.religion || null,
+      occupation: data.occupation || null,
+      spouse_name: data.spouse_name || null,
+      spouse_occupation: data.spouse_occupation || null,
+      spouse_contact_no: data.spouse_contact_no || null,
+      status: data.status,
+    },
+  });
+
+  revalidatePath("/dashboard/donors");
+  return { success: true };
+}
+
+export async function recordDropoff(donorId: number, formData: FormData) {
+  const raw = {
+    collection_date: formData.get("collection_date") as string,
+    volume: formData.get("volume") as string,
+    program: formData.get("program") as string,
+    remarks: formData.get("remarks") as string,
+    is_pasteurized: formData.get("is_pasteurized") as string,
+    batch_no: formData.get("batch_no") as string,
+    bottle_no: formData.get("bottle_no") as string,
+    expiration_date: formData.get("expiration_date") as string,
+    dtn: formData.get("dtn") as string,
+    aob: formData.get("aob") as string,
+    collected_by: formData.get("collected_by") as string,
+  };
+
+  const parsed = logDropoffSchema.safeParse(raw);
+
+  if (!parsed.success) {
+    return {
+      success: false,
+      errors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  const data = parsed.data;
+
+  const user = await db.user.findFirst({
+    where: { role: "ADMIN" },
+    select: { user_id: true },
+  });
+
+  if (!user) {
+    return {
+      success: false,
+      errors: { _form: ["No admin user found to record the collection."] },
+    };
+  }
+
+  if (data.is_pasteurized) {
+    const bottleNo =
+      data.bottle_no && data.bottle_no.length > 0
+        ? data.bottle_no
+        : `BT-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+    await db.$transaction(async (tx) => {
+      const batch = await tx.batch.create({
+        data: {
+          batch_code: data.batch_no!,
+          pooling_date: data.collection_date,
+          total_volume: data.volume,
+          status: "AVAILABLE",
+          created_by: user.user_id,
+        },
+      });
+
+      await tx.collection.create({
+        data: {
+          donor_id: donorId,
+          recorded_by: user.user_id,
+          program: data.program,
+          collection_date: data.collection_date,
+          volume: data.volume,
+          remarks: data.remarks || null,
+          is_pasteurized: true,
+          status: "READY_FOR_DISPENSING",
+          batch_no: data.batch_no || null,
+          bottle_no: bottleNo,
+          expiration_date: data.expiration_date ?? null,
+          batch_id: batch.batch_id,
+        },
+      });
+
+      await tx.inventory.create({
+        data: {
+          batch_id: batch.batch_id,
+          donated_vol: data.volume,
+          pasteurized_vol: data.volume,
+          available_vol: data.volume,
+          updated_by: user.user_id,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          user_id: user.user_id,
+          action_details: `Recorded pasteurized drop-off (${data.volume} mL) for donor #${donorId}, batch ${data.batch_no}`,
+        },
+      });
+    });
+  } else {
+    await db.$transaction(async (tx) => {
+      const batch = await tx.batch.create({
+        data: {
+          batch_code: `UNP-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+          pooling_date: data.collection_date,
+          total_volume: data.volume,
+          status: "TESTING",
+          created_by: user.user_id,
+        },
+      });
+
+      await tx.collection.create({
+        data: {
+          donor_id: donorId,
+          recorded_by: user.user_id,
+          program: data.program,
+          collection_date: data.collection_date,
+          volume: data.volume,
+          remarks: data.remarks || null,
+          is_pasteurized: false,
+          status: "PENDING_LAB_TEST",
+          dtn: data.dtn || null,
+          aob: data.aob || null,
+          collected_by: data.collected_by || null,
+          expiration_date: data.expiration_date ?? null,
+          batch_id: batch.batch_id,
+        },
+      });
+
+      await tx.labResult.create({
+        data: {
+          batch_id: batch.batch_id,
+          stage: "PRE_PASTEURIZATION",
+          test_date: new Date(),
+          result: "PENDING",
+          tested_by: user.user_id,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          user_id: user.user_id,
+          action_details: `Recorded unpasteurized drop-off (${data.volume} mL) for donor #${donorId}, routed to lab as batch ${batch.batch_code}`,
+        },
+      });
+    });
+  }
+
+  revalidatePath("/dashboard/donors");
+  revalidatePath("/dashboard/laboratory");
   return { success: true };
 }

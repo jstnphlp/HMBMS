@@ -50,6 +50,11 @@ enum SmsStatus {
   FAILED
 }
 
+enum CollectionStatus {
+  PENDING_LAB_TEST
+  READY_FOR_DISPENSING
+}
+
 model User {
   user_id  Int     @id @default(autoincrement())
   auth_id  String  @unique
@@ -107,12 +112,21 @@ model Beneficiary {
 }
 
 model Collection {
-  ctn             Int      @id @default(autoincrement())
+  ctn             Int              @id @default(autoincrement())
   donor_id        Int
   recorded_by     Int
   program         Program
   collection_date DateTime
   volume          Float
+  remarks         String?
+  is_pasteurized  Boolean          @default(false)
+  status          CollectionStatus @default(PENDING_LAB_TEST)
+  batch_no        String?
+  bottle_no       String?          @unique
+  expiration_date DateTime?
+  dtn             String?
+  aob             String?
+  collected_by    String?
   batch_id        Int?
 
   donor    Donor  @relation(fields: [donor_id], references: [donor_id])

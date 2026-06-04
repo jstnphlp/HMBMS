@@ -33,7 +33,12 @@ export function DonorRegistry({
         onSelectDonor={setSelectedDonorId}
         searchQuery={searchQuery}
       />
-      {selectedDetail && <DonorDetailPanel donor={selectedDetail} />}
+      {selectedDetail && (
+        <DonorDetailPanel
+          donor={selectedDetail}
+          onClose={() => setSelectedDonorId(null)}
+        />
+      )}
     </div>
   );
 }
