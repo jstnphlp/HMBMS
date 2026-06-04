@@ -11,6 +11,7 @@ import {
   FlaskConical,
   Truck,
   BarChart3,
+  Settings,
   HelpCircle,
   LogOut,
   Plus,
@@ -29,6 +30,7 @@ const mainNav: NavItem[] = [
   { label: "Lab Tests", href: "/dashboard/laboratory", icon: FlaskConical },
   { label: "Distribution", href: "/dashboard/dispensing", icon: Truck },
   { label: "Reporting", href: "/dashboard/analytics", icon: BarChart3 },
+  { label: "System Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
 const bottomNav: NavItem[] = [
