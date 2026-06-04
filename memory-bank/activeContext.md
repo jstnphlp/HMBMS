@@ -9,11 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **FSD Domain** | `inventory` |
-| **FSD Domain** | `analytics` |
+| **FSD Domain** | `laboratory` |
 | **Custom Mode** | `feature-ui-builder` |
-| **Branch** | `feature/login-ui-refactor` |
-| **Worktree Path** | `../agent-workspaces/feature-login-ui-refactor` |
+| **Branch** | `feature/laboratory-ui` |
+| **Worktree Path** | `../agent-workspaces/feature-laboratory-ui` |
 | **Execution Method** | Kilo Code CLI (feature-ui-builder mode) |
 
 ---
@@ -22,12 +21,12 @@
 
 | Field | Value |
 |---|---|
-| **API URL** | `http://localhost:8785` |
-| **DB Port** | `8786` |
-| **Studio URL** | `http://localhost:8787` |
+| **API URL** | `http://localhost:55421` |
+| **DB Port** | `55422` |
+| **Studio URL** | `http://localhost:55423` |
 | **Anon Key** | Check `.env` for `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
 
-Ports remapped to 5442x to avoid collision with other worktrees.
+Ports remapped to 5542x to avoid collision with other worktrees.
 
 ---
 
@@ -55,6 +54,8 @@ Ports remapped to 5442x to avoid collision with other worktrees.
 
 ## Notes
 
-**Current Task:** Refactor the UI of the login page to align strictly with the light theme tokens from the Stitch MCP server, entirely removing grayscale color usage.
+**Current Task:** Build the Laboratory Quality Control UI (Pre and Post-Pasteurization) by dynamically querying the Makati Milk Bank System project on the Stitch MCP server for exact design tokens, enforcing a light theme, and removing all grayscale colors.
+
+**Stitch Project:** `Makati Milk Bank System` — use `list_projects` to find it, then query screens and design tokens from that project.
 
 The agent MUST always explicitly refer to and enforce the rules within AGENTS.md and DESIGN.md.
