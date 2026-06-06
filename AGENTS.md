@@ -66,7 +66,7 @@ import { db } from "@/core/db";
 - Bypass Prisma's type system with `as any` or `@ts-ignore` on database payloads
 - Store untyped JSON blobs when a typed relation or enum exists in the schema
 
-**Schema is the single source of truth.** The Prisma schema at `prisma/schema.prisma` defines all models, enums, and relations. If a task requires a schema change, modify the schema first, run `npx prisma format`, `npx prisma generate`, and `npx prisma db push` before writing application code.
+**Schema is the single source of truth.** The Prisma schema at `prisma/schema.prisma` defines all models, enums, and relations. If a task requires a schema change, modify the schema first, run `npx prisma format`, `npx prisma generate`, and `npx prisma migrate dev --name <descriptive_name>` before writing application code. **Never use `npx prisma db push`** — it modifies the database without creating migration files, causing drift that breaks `prisma migrate dev`.
 
 ### 3.3 Git Safety & Multi-Agent Isolation
 

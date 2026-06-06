@@ -16,6 +16,7 @@ export const createDispensingSchema = z.object({
 export type CreateDispensingInput = z.infer<typeof createDispensingSchema>;
 
 export const createBeneficiarySchema = z.object({
+  name: z.string().min(1, "Name is required").max(200),
   contact_no: z
     .string()
     .regex(/^(\+63|0)[0-9]{10}$/, "Invalid Philippine phone number"),

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const createRecipientSchema = z.object({
+  name: z.string().min(1, "Name is required").max(200),
   contact_no: z
     .string()
     .min(1, "Contact number is required")
@@ -12,6 +13,7 @@ export const createRecipientSchema = z.object({
 });
 
 export const updateRecipientSchema = z.object({
+  name: z.string().min(1, "Name is required").max(200),
   contact_no: z
     .string()
     .min(1, "Contact number is required")
