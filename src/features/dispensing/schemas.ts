@@ -24,3 +24,22 @@ export const createBeneficiarySchema = z.object({
 });
 
 export type CreateBeneficiaryInput = z.infer<typeof createBeneficiarySchema>;
+
+export const recipientDispensingSchema = z.object({
+  beneficiary_id: z.number().int().positive("Recipient is required"),
+  dispensing_date: z.coerce.date().default(() => new Date()),
+  volume: z
+    .number()
+    .positive("Volume must be positive")
+    .max(1200, "Max 1200mL per dispensing"),
+  batch_reference: z
+    .string()
+    .max(50)
+    .optional()
+    .transform((v) => (v === "" ? undefined : v)),
+  remarks: z.string().max(500).optional(),
+});
+
+export type RecipientDispensingInput = z.infer<
+  typeof recipientDispensingSchema
+>;

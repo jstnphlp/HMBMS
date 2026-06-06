@@ -287,6 +287,7 @@ export function DonorDetailPanel({
           <Button
             variant="outline"
             className="flex-1 h-8 text-xs border-border"
+            disabled={donor.status === "INACTIVE"}
             onClick={() => setDropoffOpen(true)}
           >
             Log Drop-off

@@ -24,7 +24,7 @@ export default async function RecipientsPage() {
   );
 
   return (
-    <div className="mx-auto max-w-full space-y-6">
+    <div className="mx-auto max-w-full overflow-x-hidden space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg leading-8 font-semibold tracking-tight text-foreground">
           Recipient Management

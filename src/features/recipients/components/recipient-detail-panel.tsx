@@ -16,6 +16,8 @@ import {
 } from "@/core/ui/dialog";
 import { Separator } from "@/core/ui/separator";
 import { RecipientStatusBadge } from "./recipient-status-badge";
+import { RecordDispensingModal } from "./record-dispensing-modal";
+import { SendSmsModal } from "@/features/sms/components/send-sms-modal";
 import { cn } from "@/core/utils/cn";
 import { updateRecipient } from "../actions";
 import {
@@ -39,6 +41,8 @@ export function RecipientDetailPanel({
   onClose,
 }: RecipientDetailPanelProps) {
   const [editOpen, setEditOpen] = useState(false);
+  const [dispensingOpen, setDispensingOpen] = useState(false);
+  const [smsOpen, setSmsOpen] = useState(false);
 
   function formatDate(date: Date | string | null) {
     if (!date) return "--";
@@ -242,11 +246,15 @@ export function RecipientDetailPanel({
         <Button
           variant="outline"
           className="flex-1 h-8 text-xs border-border"
+          onClick={() => setSmsOpen(true)}
         >
           <MessageSquare className="size-3.5 mr-1" />
           Send SMS
         </Button>
-        <Button className="flex-1 h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90">
+        <Button
+          className="flex-1 h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90"
+          onClick={() => setDispensingOpen(true)}
+        >
           <Droplets className="size-3.5 mr-1" />
           Record Dispensing
         </Button>
@@ -256,6 +264,22 @@ export function RecipientDetailPanel({
         recipient={recipient}
         open={editOpen}
         onOpenChange={setEditOpen}
+      />
+
+      <RecordDispensingModal
+        open={dispensingOpen}
+        onOpenChange={setDispensingOpen}
+        beneficiaryId={recipient.beneficiary_id}
+        recipientName={recipient.name}
+      />
+
+      <SendSmsModal
+        open={smsOpen}
+        onOpenChange={setSmsOpen}
+        beneficiaryId={recipient.beneficiary_id}
+        recipientName={recipient.name}
+        contactNo={recipient.contact_no}
+        totalVolume={recipient.total_volume}
       />
     </>
   );

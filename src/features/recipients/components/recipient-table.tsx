@@ -70,7 +70,7 @@ export function RecipientTable({
   );
 
   return (
-    <section className="flex-[2] flex flex-col bg-surface border border-border rounded-lg overflow-hidden min-w-[500px]">
+    <section className="flex-[2] min-w-0 flex flex-col bg-surface border border-border rounded-lg overflow-hidden">
       {/* Toolbar */}
       <div className="p-4 border-b border-border bg-card flex justify-between items-center shrink-0">
         <div className="flex items-center gap-2">
