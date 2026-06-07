@@ -153,13 +153,14 @@ model Batch {
 }
 
 model LabResult {
-  lab_id    Int           @id @default(autoincrement())
-  batch_id  Int
-  stage     LabStage
-  test_date DateTime
-  result    LabTestResult @default(PENDING)
-  tested_by Int
-  remarks   String?
+  lab_id       Int           @id @default(autoincrement())
+  batch_id     Int
+  stage        LabStage
+  test_date    DateTime
+  result       LabTestResult @default(PENDING)
+  tested_by    Int
+  colony_count Int?
+  remarks      String?
 
   batch  Batch @relation(fields: [batch_id], references: [batch_id])
   tester User  @relation("TestedBy", fields: [tested_by], references: [user_id])

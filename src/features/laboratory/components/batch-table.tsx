@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   Table,
   TableBody,
@@ -11,6 +11,7 @@ import {
 } from "@/core/ui/table";
 import { Input } from "@/core/ui/input";
 import { Button } from "@/core/ui/button";
+import { Checkbox } from "@/core/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -49,6 +50,7 @@ export function BatchTable({
   const [search, setSearch] = useState("");
   const [programFilter, setProgramFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const filtered = useMemo(() => {
     return batches.filter((batch) => {
@@ -69,6 +71,31 @@ export function BatchTable({
     page * PAGE_SIZE
   );
 
+  const isAllPageSelected =
+    paginated.length > 0 &&
+    paginated.every((b) => selectedIds.has(b.batch_id));
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (isAllPageSelected) {
+        for (const b of paginated) next.delete(b.batch_id);
+      } else {
+        for (const b of paginated) next.add(b.batch_id);
+      }
+      return next;
+    });
+  }, [isAllPageSelected, paginated]);
+
+  const toggleSelect = useCallback((batchId: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(batchId)) next.delete(batchId);
+      else next.add(batchId);
+      return next;
+    });
+  }, []);
+
   function formatDate(date: Date) {
     return new Intl.DateTimeFormat("en-US", {
       month: "short",
@@ -78,7 +105,7 @@ export function BatchTable({
   }
 
   return (
-    <section className="lg:col-span-2 flex flex-col bg-background border border-border rounded-lg overflow-hidden">
+    <section className="flex flex-col min-w-0 bg-background border border-border rounded-lg overflow-hidden">
       {/* Toolbar */}
       <div className="px-4 py-2 border-b border-border bg-muted flex justify-between items-center shrink-0">
         <div className="flex items-center gap-2">
@@ -88,6 +115,11 @@ export function BatchTable({
           <Badge className="bg-muted-foreground/10 text-muted-foreground px-2 py-0.5 text-[10px]">
             {filtered.length}
           </Badge>
+          {selectedIds.size > 0 && (
+            <Badge className="bg-primary/10 text-primary px-2 py-0.5 text-[10px]">
+              {selectedIds.size} selected
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="relative max-w-[200px]">
@@ -135,11 +167,18 @@ export function BatchTable({
         <Table>
           <TableHeader className="sticky top-0 bg-muted z-10 border-b border-border">
             <TableRow className="border-b border-border hover:bg-transparent">
+              <TableHead className="w-10 py-2 px-3">
+                <Checkbox
+                  checked={isAllPageSelected}
+                  onCheckedChange={toggleSelectAll}
+                  aria-label="Select all"
+                />
+              </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
                 Batch ID
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
-                Date
+                Date Logged
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
                 Program
@@ -161,6 +200,7 @@ export function BatchTable({
           <TableBody>
             {paginated.map((batch) => {
               const isSelected = selectedBatchId === batch.batch_id;
+              const isChecked = selectedIds.has(batch.batch_id);
               return (
                 <TableRow
                   key={batch.batch_id}
@@ -172,6 +212,14 @@ export function BatchTable({
                       : "hover:bg-muted/50"
                   )}
                 >
+                  <TableCell className="w-10 py-2.5 px-3">
+                    <Checkbox
+                      checked={isChecked}
+                      onCheckedChange={() => toggleSelect(batch.batch_id)}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`Select batch ${batch.batch_code}`}
+                    />
+                  </TableCell>
                   <TableCell className="py-2.5 px-3 text-[13px] font-semibold text-primary">
                     {batch.batch_code}
                   </TableCell>
@@ -216,7 +264,7 @@ export function BatchTable({
                   <TableCell className="py-2.5 px-3">
                     <BatchStatusBadge status={batch.status} />
                   </TableCell>
-                  <TableCell className="py-2.5 px-3 text-[13px] font-semibold text-foreground text-right">
+                  <TableCell className="py-2.5 px-3 text-[13px] font-semibold text-foreground text-right tabular-nums">
                     {batch.total_volume.toLocaleString()}
                   </TableCell>
                 </TableRow>
@@ -225,7 +273,7 @@ export function BatchTable({
             {paginated.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="py-12 text-center text-muted-foreground text-sm"
                 >
                   No batches found matching your criteria.

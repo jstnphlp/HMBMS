@@ -42,6 +42,7 @@ export interface LabBatchDetail {
     stage: string;
     result: string;
     test_date: Date;
+    colony_count: number | null;
     remarks: string | null;
     tester_name: string;
   }[];
@@ -51,7 +52,7 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
   const batches = await db.batch.findMany({
     where: {
       status: {
-        in: ["TESTING", "PASTEURIZED", "POOLING"],
+        in: ["TESTING", "PASTEURIZED", "POOLING", "AVAILABLE", "DISPOSED"],
       },
     },
     include: {
@@ -147,6 +148,7 @@ export async function getBatchLabDetail(
       stage: lr.stage,
       result: lr.result,
       test_date: lr.test_date,
+      colony_count: lr.colony_count,
       remarks: lr.remarks,
       tester_name: lr.tester.email,
     })),
