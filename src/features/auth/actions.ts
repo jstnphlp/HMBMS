@@ -22,13 +22,25 @@ export async function login(formData: FormData) {
   const { email, password } = parsed.data;
   const supabase = await createClient();
 
-  const { error } = await supabase.auth.signInWithPassword({
+  const { error, data } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
 
   if (error) {
     return { success: false, error: error.message };
+  }
+
+  // Ensure a corresponding User row exists in the database
+  if (data.user) {
+    await db.user.upsert({
+      where: { auth_id: data.user.id },
+      update: { email: data.user.email ?? email },
+      create: {
+        auth_id: data.user.id,
+        email: data.user.email ?? email,
+      },
+    });
   }
 
   revalidatePath("/", "layout");

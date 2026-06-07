@@ -2,49 +2,396 @@
 
 import { useState } from "react";
 import { Button } from "@/core/ui/button";
-import { Badge } from "@/core/ui/badge";
+import { Input } from "@/core/ui/input";
+import { Label } from "@/core/ui/label";
 import { Textarea } from "@/core/ui/textarea";
 import { Separator } from "@/core/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/core/ui/select";
 import { BatchStatusBadge } from "./batch-status-badge";
 import { LabResultBadge } from "./lab-result-badge";
 import { cn } from "@/core/utils/cn";
-import { recordLabResult } from "../actions";
+import {
+  recordLabResult,
+  updateBatchLabResults,
+  bulkUpdateBatchStatus,
+} from "../actions";
+import { toast } from "sonner";
 import {
   FlaskConical,
-  CheckCircle2,
+  CheckCircle,
   XCircle,
   Clock,
   User,
   Beaker,
   Loader2,
+  ArrowRight,
+  Layers,
 } from "lucide-react";
-import type { LabBatchDetail } from "../queries";
+import type { LabBatchDetail, LabBatchSummary } from "../queries";
 
 interface BatchDetailPanelProps {
   batch: LabBatchDetail | null;
+  selectedBatchIds: Set<number>;
+  selectedBatchSummaries: LabBatchSummary[];
   onClose: () => void;
+  onClearSelection: () => void;
 }
 
-export function BatchDetailPanel({ batch, onClose }: BatchDetailPanelProps) {
+const STATUS_TRANSITIONS: Record<
+  string,
+  { value: string; label: string }[]
+> = {
+  POOLING: [{ value: "TESTING", label: "Move to Testing" }],
+  TESTING: [
+    { value: "PASTEURIZED", label: "Mark Pasteurized" },
+    { value: "DISPOSED", label: "Dispose (Failed)" },
+  ],
+  PASTEURIZED: [
+    { value: "AVAILABLE", label: "Mark Available" },
+    { value: "DISPOSED", label: "Dispose (Failed)" },
+  ],
+  AVAILABLE: [{ value: "DISPOSED", label: "Dispose" }],
+};
+
+const BULK_STATUS_OPTIONS = [
+  { value: "TESTING", label: "Testing" },
+  { value: "PASTEURIZED", label: "Pasteurized" },
+  { value: "AVAILABLE", label: "Available" },
+  { value: "DISPOSED", label: "Disposed" },
+];
+
+export function BatchDetailPanel({
+  batch,
+  selectedBatchIds,
+  selectedBatchSummaries,
+  onClose,
+  onClearSelection,
+}: BatchDetailPanelProps) {
+  if (selectedBatchIds.size > 1) {
+    return (
+      <BulkEditPanel
+        selectedBatchSummaries={selectedBatchSummaries}
+        onClearSelection={onClearSelection}
+      />
+    );
+  }
+
+  return (
+    <SingleBatchPanel
+      key={batch?.batch_id}
+      batch={batch}
+      onClose={onClose}
+    />
+  );
+}
+
+function BulkEditPanel({
+  selectedBatchSummaries,
+  onClearSelection,
+}: {
+  selectedBatchSummaries: LabBatchSummary[];
+  onClearSelection: () => void;
+}) {
+  const [bulkStatus, setBulkStatus] = useState<string>("");
+  const [bulkNotes, setBulkNotes] = useState("");
+  const [activeStage, setActiveStage] = useState<
+    "PRE_PASTEURIZATION" | "POST_PASTEURIZATION"
+  >("PRE_PASTEURIZATION");
+  const [colonyCount, setColonyCount] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const hasAnyBulkField =
+    !!bulkStatus || !!bulkNotes.trim() || colonyCount !== "";
+
+  async function handleBulkSave() {
+    if (!hasAnyBulkField) {
+      toast.error("Fill in at least one field before saving.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    const colonyCountNum =
+      colonyCount !== "" ? Number(colonyCount) : undefined;
+
+    const response = await bulkUpdateBatchStatus({
+      batch_ids: selectedBatchSummaries.map((b) => b.batch_id),
+      status: bulkStatus
+        ? (bulkStatus as
+            | "TESTING"
+            | "PASTEURIZED"
+            | "AVAILABLE"
+            | "DISPOSED")
+        : undefined,
+      notes: bulkNotes.trim() || undefined,
+      pre_pasteurization_colony_count:
+        activeStage === "PRE_PASTEURIZATION" ? colonyCountNum : undefined,
+      post_pasteurization_colony_count:
+        activeStage === "POST_PASTEURIZATION" ? colonyCountNum : undefined,
+    });
+
+    if (response.success) {
+      toast.success(
+        `Bulk update successful — ${response.data?.updated ?? selectedBatchSummaries.length} batch(es) updated.`
+      );
+      setBulkNotes("");
+      setBulkStatus("");
+      setColonyCount("");
+      onClearSelection();
+    } else {
+      const errors = response.errors;
+      const firstError = errors
+        ? Object.values(errors).flat()[0]
+        : "An error occurred";
+      toast.error(firstError ?? "Bulk update failed");
+    }
+
+    setIsSubmitting(false);
+  }
+
+  const totalVolume = selectedBatchSummaries.reduce(
+    (sum, b) => sum + b.total_volume,
+    0
+  );
+
+  return (
+    <div className="bg-background border border-border rounded-lg flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-border bg-muted flex justify-between items-start shrink-0">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Layers className="size-4 text-primary" />
+            <h3 className="text-base font-bold text-foreground">
+              Bulk Edit
+            </h3>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Editing {selectedBatchSummaries.length} batches
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onClearSelection}
+          className="text-muted-foreground"
+        >
+          {"\u2715"}
+        </Button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-5">
+        {/* Summary Stats */}
+        <section>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-muted/50 p-2.5 rounded-md border border-border/50">
+              <label className="block text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">
+                Selected
+              </label>
+              <span className="text-lg font-semibold text-foreground leading-none">
+                {selectedBatchSummaries.length}
+              </span>
+            </div>
+            <div className="bg-muted/50 p-2.5 rounded-md border border-border/50">
+              <label className="block text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">
+                Total Volume
+              </label>
+              <div className="flex items-end gap-1">
+                <span className="text-lg font-semibold text-foreground leading-none">
+                  {totalVolume.toLocaleString()}
+                </span>
+                <span className="text-xs text-muted-foreground">mL</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Selected Batch List */}
+        <section>
+          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
+            Selected Batches
+          </h4>
+          <div className="space-y-1.5 max-h-[140px] overflow-y-auto">
+            {selectedBatchSummaries.map((b) => (
+              <div
+                key={b.batch_id}
+                className="flex items-center justify-between p-2 bg-muted/50 rounded-md border border-border/50"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-primary">
+                    {b.batch_code}
+                  </span>
+                  <BatchStatusBadge status={b.status} />
+                </div>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {b.total_volume.toLocaleString()} mL
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <Separator className="bg-border/50" />
+
+        {/* Bulk Test Results */}
+        <section>
+          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
+            Test Results
+          </h4>
+
+          <div className="flex gap-1 mb-4 bg-muted p-[3px] rounded-md">
+            <button
+              onClick={() => setActiveStage("PRE_PASTEURIZATION")}
+              className={cn(
+                "flex-1 py-1.5 px-2 text-[11px] font-medium rounded transition-all",
+                activeStage === "PRE_PASTEURIZATION"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Pre-Pasteurization
+            </button>
+            <button
+              onClick={() => setActiveStage("POST_PASTEURIZATION")}
+              className={cn(
+                "flex-1 py-1.5 px-2 text-[11px] font-medium rounded transition-all",
+                activeStage === "POST_PASTEURIZATION"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Post-Pasteurization
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                {activeStage === "PRE_PASTEURIZATION"
+                  ? "Pre-Pasteurization"
+                  : "Post-Pasteurization"}{" "}
+                Colony Count (CFU/mL)
+              </Label>
+              <Input
+                type="number"
+                min={0}
+                value={colonyCount}
+                onChange={(e) => setColonyCount(e.target.value)}
+                placeholder="e.g. 15000"
+                className="mt-1.5 h-8 text-xs bg-background border-border"
+              />
+            </div>
+          </div>
+        </section>
+
+        <Separator className="bg-border/50" />
+
+        {/* Bulk Status Selector */}
+        <section>
+          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
+            Bulk Status Update
+          </h4>
+
+          <div className="space-y-3">
+            <div>
+              <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                Target Status
+              </Label>
+              <Select value={bulkStatus} onValueChange={setBulkStatus}>
+                <SelectTrigger className="mt-1.5 h-8 text-xs bg-background border-border w-full">
+                  <SelectValue placeholder="Select new status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {BULK_STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                Bulk Notes (optional)
+              </Label>
+              <Textarea
+                value={bulkNotes}
+                onChange={(e) => setBulkNotes(e.target.value)}
+                placeholder="Apply common remarks to all selected batches..."
+                className="mt-1.5 min-h-[60px] text-xs bg-background border-border resize-none"
+                maxLength={500}
+              />
+              <p className="text-[10px] text-muted-foreground mt-1 text-right">
+                {bulkNotes.length}/500
+              </p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-3 border-t border-border bg-muted flex gap-2 shrink-0">
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-1 text-xs border-border"
+          onClick={onClearSelection}
+        >
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-medium"
+          disabled={isSubmitting || !hasAnyBulkField}
+          onClick={handleBulkSave}
+        >
+          {isSubmitting ? (
+            <Loader2 className="size-3.5 animate-spin mr-1.5" />
+          ) : null}
+          Save Changes
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SingleBatchPanel({
+  batch,
+  onClose,
+}: {
+  batch: LabBatchDetail | null;
+  onClose: () => void;
+}) {
   const [activeStage, setActiveStage] = useState<
     "PRE_PASTEURIZATION" | "POST_PASTEURIZATION"
   >("PRE_PASTEURIZATION");
   const [remarks, setRemarks] = useState("");
+  const [colonyCount, setColonyCount] = useState("");
+  const transitions = batch
+    ? STATUS_TRANSITIONS[batch.status] ?? []
+    : [];
+  const [targetStatus, setTargetStatus] = useState<string>(
+    transitions[0]?.value ?? ""
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitResult, setSubmitResult] = useState<{
-    success: boolean;
-    message: string;
-  } | null>(null);
+  const [isSavingResults, setIsSavingResults] = useState(false);
 
   if (!batch) {
     return (
-      <div className="lg:col-span-1 bg-background border border-border rounded-lg flex flex-col items-center justify-center p-8 text-center">
+      <div className="bg-background border border-border rounded-lg flex flex-col items-center justify-center p-8 text-center">
         <FlaskConical className="size-10 text-muted-foreground/30 mb-3" />
         <p className="text-sm font-medium text-muted-foreground">
           Select a batch
         </p>
         <p className="text-xs text-muted-foreground/70 mt-1">
-          Click a row in the table to view batch details and record lab results.
+          Click a row in the table to view batch details and record lab
+          results.
         </p>
       </div>
     );
@@ -62,30 +409,65 @@ export function BatchDetailPanel({ batch, onClose }: BatchDetailPanelProps) {
 
   async function handleRecordResult(result: "PASS" | "FAIL") {
     setIsSubmitting(true);
-    setSubmitResult(null);
 
     const response = await recordLabResult({
       batch_id: batch!.batch_id,
       stage: activeStage,
       result,
+      colony_count: colonyCount ? Number(colonyCount) : undefined,
       remarks: remarks.trim() || undefined,
     });
 
     if (response.success) {
-      setSubmitResult({
-        success: true,
-        message: `${activeStage === "PRE_PASTEURIZATION" ? "Pre-Pasteurization" : "Post-Pasteurization"} result recorded as ${result}.`,
-      });
+      toast.success(
+        `${activeStage === "PRE_PASTEURIZATION" ? "Pre-Pasteurization" : "Post-Pasteurization"} result recorded as ${result}.`
+      );
       setRemarks("");
+      setColonyCount("");
     } else {
       const errors = response.errors;
       const firstError = errors
         ? Object.values(errors).flat()[0]
         : "An error occurred";
-      setSubmitResult({ success: false, message: firstError ?? "Failed" });
+      toast.error(firstError ?? "Failed to record result");
     }
 
     setIsSubmitting(false);
+  }
+
+  async function handleSaveLabResults() {
+    if (!targetStatus) {
+      toast.error("Select a target status before saving.");
+      return;
+    }
+
+    setIsSavingResults(true);
+
+    const response = await updateBatchLabResults({
+      batch_id: batch!.batch_id,
+      stage: activeStage,
+      colony_count: colonyCount ? Number(colonyCount) : undefined,
+      remarks: remarks.trim() || undefined,
+      status: targetStatus as
+        | "TESTING"
+        | "PASTEURIZED"
+        | "AVAILABLE"
+        | "DISPOSED",
+    });
+
+    if (response.success) {
+      toast.success("Lab results saved and batch status updated.");
+      setRemarks("");
+      setColonyCount("");
+    } else {
+      const errors = response.errors;
+      const firstError = errors
+        ? Object.values(errors).flat()[0]
+        : "An error occurred";
+      toast.error(firstError ?? "Failed to save results");
+    }
+
+    setIsSavingResults(false);
   }
 
   function formatDate(date: Date) {
@@ -114,7 +496,7 @@ export function BatchDetailPanel({ batch, onClose }: BatchDetailPanelProps) {
   }
 
   return (
-    <div className="lg:col-span-1 bg-background border border-border rounded-lg flex flex-col overflow-hidden">
+    <div className="bg-background border border-border rounded-lg flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border bg-muted flex justify-between items-start shrink-0">
         <div>
@@ -205,13 +587,12 @@ export function BatchDetailPanel({ batch, onClose }: BatchDetailPanelProps) {
             </button>
           </div>
 
-          {/* Current Result Display */}
           {activeResult ? (
             <div className="bg-muted/50 p-3 rounded-md border border-border/50 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {activeResult.result === "PASS" ? (
-                    <CheckCircle2 className="size-4 text-primary" />
+                    <CheckCircle className="size-4 text-primary" />
                   ) : activeResult.result === "FAIL" ? (
                     <XCircle className="size-4 text-destructive" />
                   ) : (
@@ -227,6 +608,16 @@ export function BatchDetailPanel({ batch, onClose }: BatchDetailPanelProps) {
                   {formatDateTime(activeResult.test_date)}
                 </span>
               </div>
+              {activeResult.colony_count != null && (
+                <div className="flex items-center gap-2 text-xs text-foreground">
+                  <span className="text-muted-foreground">
+                    Colony Count:
+                  </span>
+                  <span className="font-semibold tabular-nums">
+                    {activeResult.colony_count.toLocaleString()} CFU/mL
+                  </span>
+                </div>
+              )}
               {activeResult.remarks && (
                 <p className="text-xs text-muted-foreground italic">
                   &ldquo;{activeResult.remarks}&rdquo;
@@ -249,22 +640,36 @@ export function BatchDetailPanel({ batch, onClose }: BatchDetailPanelProps) {
 
         <Separator className="bg-border/50" />
 
-        {/* Record Result Form */}
+        {/* Microbiological Result Input Form */}
         <section>
           <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
-            Record Test Result
+            Microbiological Results
           </h4>
 
           <div className="space-y-3">
             <div>
-              <label className="block text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wider">
-                Remarks (optional)
-              </label>
+              <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                Total Colony Count (CFU/mL)
+              </Label>
+              <Input
+                type="number"
+                min={0}
+                value={colonyCount}
+                onChange={(e) => setColonyCount(e.target.value)}
+                placeholder="e.g. 15000"
+                className="mt-1.5 h-8 text-xs bg-background border-border"
+              />
+            </div>
+
+            <div>
+              <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                Remarks / Notes
+              </Label>
               <Textarea
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
-                placeholder="Add observations, notes, or anomalies..."
-                className="min-h-[60px] text-xs bg-background border-border resize-none"
+                placeholder="Observations, anomalies, or additional notes..."
+                className="mt-1.5 min-h-[60px] text-xs bg-background border-border resize-none"
                 maxLength={500}
               />
               <p className="text-[10px] text-muted-foreground mt-1 text-right">
@@ -281,7 +686,7 @@ export function BatchDetailPanel({ batch, onClose }: BatchDetailPanelProps) {
                 {isSubmitting ? (
                   <Loader2 className="size-3.5 animate-spin" />
                 ) : (
-                  <CheckCircle2 className="size-3.5" />
+                  <CheckCircle className="size-3.5" />
                 )}
                 Pass
               </Button>
@@ -299,20 +704,64 @@ export function BatchDetailPanel({ batch, onClose }: BatchDetailPanelProps) {
                 Fail
               </Button>
             </div>
-
-            {submitResult && (
-              <div
-                className={cn(
-                  "text-xs p-2 rounded-md border",
-                  submitResult.success
-                    ? "bg-primary/10 text-primary border-primary/20"
-                    : "bg-destructive/10 text-destructive border-destructive/20"
-                )}
-              >
-                {submitResult.message}
-              </div>
-            )}
           </div>
+        </section>
+
+        <Separator className="bg-border/50" />
+
+        {/* Status Transition */}
+        <section>
+          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
+            Status Transition
+          </h4>
+
+          {transitions.length > 0 ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <BatchStatusBadge status={batch.status} />
+                <ArrowRight className="size-3.5" />
+                <span className="font-medium text-foreground">Next</span>
+              </div>
+
+              <div>
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Target Status
+                </Label>
+                <Select
+                  value={targetStatus}
+                  onValueChange={setTargetStatus}
+                >
+                  <SelectTrigger className="mt-1.5 h-8 text-xs bg-background border-border w-full">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {transitions.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Button
+                onClick={handleSaveLabResults}
+                disabled={isSavingResults || !targetStatus}
+                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-medium"
+              >
+                {isSavingResults ? (
+                  <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                ) : null}
+                Save Results &amp; Update Status
+              </Button>
+            </div>
+          ) : (
+            <div className="bg-muted/30 p-3 rounded-md border border-dashed border-border text-center">
+              <p className="text-xs text-muted-foreground">
+                No status transitions available for current status.
+              </p>
+            </div>
+          )}
         </section>
 
         <Separator className="bg-border/50" />
@@ -350,16 +799,18 @@ export function BatchDetailPanel({ batch, onClose }: BatchDetailPanelProps) {
           </div>
         </section>
       </div>
+
+      {/* Footer */}
       <div className="px-4 py-2 border-t border-border bg-muted flex gap-2 shrink-0">
-      <Button
-        variant="outline"
-        size="sm"
-        className="flex-1 text-xs border-border"
-        onClick={onClose}
-      >
-        Close
-      </Button>
-    </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-1 text-xs border-border"
+          onClick={onClose}
+        >
+          Close
+        </Button>
+      </div>
     </div>
   );
 }
