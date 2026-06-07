@@ -30,6 +30,8 @@ interface BatchTableProps {
   batches: LabBatchSummary[];
   selectedBatchId: number | null;
   onSelectBatch: (batchId: number) => void;
+  selectedIds: Set<number>;
+  onSelectionChange: (ids: Set<number>) => void;
 }
 
 const PAGE_SIZE = 15;
@@ -46,11 +48,12 @@ export function BatchTable({
   batches,
   selectedBatchId,
   onSelectBatch,
+  selectedIds,
+  onSelectionChange,
 }: BatchTableProps) {
   const [search, setSearch] = useState("");
   const [programFilter, setProgramFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const filtered = useMemo(() => {
     return batches.filter((batch) => {
@@ -76,25 +79,25 @@ export function BatchTable({
     paginated.every((b) => selectedIds.has(b.batch_id));
 
   const toggleSelectAll = useCallback(() => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+    onSelectionChange((() => {
+      const next = new Set(selectedIds);
       if (isAllPageSelected) {
         for (const b of paginated) next.delete(b.batch_id);
       } else {
         for (const b of paginated) next.add(b.batch_id);
       }
       return next;
-    });
-  }, [isAllPageSelected, paginated]);
+    })());
+  }, [isAllPageSelected, paginated, selectedIds, onSelectionChange]);
 
   const toggleSelect = useCallback((batchId: number) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+    onSelectionChange((() => {
+      const next = new Set(selectedIds);
       if (next.has(batchId)) next.delete(batchId);
       else next.add(batchId);
       return next;
-    });
-  }, []);
+    })());
+  }, [selectedIds, onSelectionChange]);
 
   function formatDate(date: Date) {
     return new Intl.DateTimeFormat("en-US", {

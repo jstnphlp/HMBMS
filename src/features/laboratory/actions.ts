@@ -5,8 +5,13 @@ import { revalidatePath } from "next/cache";
 import {
   recordLabResultSchema,
   updateBatchLabResultsSchema,
+  bulkUpdateBatchStatusSchema,
 } from "./schemas";
-import type { RecordLabResultInput, UpdateBatchLabResultsInput } from "./schemas";
+import type {
+  RecordLabResultInput,
+  UpdateBatchLabResultsInput,
+  BulkUpdateBatchStatusInput,
+} from "./schemas";
 import { getCurrentUser } from "@/features/auth/actions";
 
 export async function recordLabResult(rawInput: unknown) {
@@ -181,4 +186,74 @@ export async function updateBatchLabResults(rawInput: unknown) {
 
   revalidatePath("/dashboard/laboratory");
   return { success: true, data: result };
+}
+
+export async function bulkUpdateBatchStatus(rawInput: unknown) {
+  const parsed = bulkUpdateBatchStatusSchema.safeParse(rawInput);
+
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const input: BulkUpdateBatchStatusInput = parsed.data;
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return { success: false, errors: { _form: ["Not authenticated"] } };
+  }
+
+  const batches = await db.batch.findMany({
+    where: { batch_id: { in: input.batch_ids } },
+    select: { batch_id: true, batch_code: true },
+  });
+
+  if (batches.length === 0) {
+    return { success: false, errors: { batch_ids: ["No valid batches found"] } };
+  }
+
+  const foundIds = batches.map((b) => b.batch_id);
+
+  await db.$transaction(async (tx) => {
+    await tx.batch.updateMany({
+      where: { batch_id: { in: foundIds } },
+      data: { status: input.status },
+    });
+
+    if (input.notes) {
+      for (const batchId of foundIds) {
+        const existing = await tx.labResult.findFirst({
+          where: { batch_id: batchId, stage: "PRE_PASTEURIZATION" },
+        });
+
+        if (existing) {
+          await tx.labResult.update({
+            where: { lab_id: existing.lab_id },
+            data: { remarks: input.notes },
+          });
+        } else {
+          await tx.labResult.create({
+            data: {
+              batch_id: batchId,
+              stage: "PRE_PASTEURIZATION",
+              result: "PENDING",
+              test_date: new Date(),
+              tested_by: user.user_id,
+              remarks: input.notes,
+            },
+          });
+        }
+      }
+    }
+
+    const codes = batches.map((b) => b.batch_code).join(", ");
+    await tx.auditLog.create({
+      data: {
+        user_id: user.user_id,
+        action_details: `Bulk updated ${batches.length} batch(es) [${codes}] status → ${input.status}${input.notes ? `, notes: ${input.notes}` : ""}`,
+      },
+    });
+  });
+
+  revalidatePath("/dashboard/laboratory");
+  return { success: true, data: { updated: batches.length } };
 }

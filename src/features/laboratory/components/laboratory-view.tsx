@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/core/ui/tabs";
 import { Badge } from "@/core/ui/badge";
 import { BatchTable } from "./batch-table";
@@ -34,6 +34,7 @@ export function LaboratoryView({
     initialBatchDetail
   );
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const filteredBatches = useMemo(() => {
     const allowedStatuses = STATUS_TAB_MAP[activeTab];
@@ -59,6 +60,14 @@ export function LaboratoryView({
     return counts;
   }, [batches]);
 
+  const selectedBatchSummaries = useMemo(() => {
+    return batches.filter((b) => selectedIds.has(b.batch_id));
+  }, [batches, selectedIds]);
+
+  const handleSelectionChange = useCallback((ids: Set<number>) => {
+    setSelectedIds(ids);
+  }, []);
+
   async function handleSelectBatch(batchId: number) {
     if (batchId === selectedBatchId) return;
 
@@ -79,6 +88,10 @@ export function LaboratoryView({
   function handleCloseDetail() {
     setSelectedBatchId(null);
     setBatchDetail(null);
+  }
+
+  function handleClearSelection() {
+    setSelectedIds(new Set());
   }
 
   return (
@@ -126,6 +139,8 @@ export function LaboratoryView({
           batches={filteredBatches}
           selectedBatchId={selectedBatchId}
           onSelectBatch={handleSelectBatch}
+          selectedIds={selectedIds}
+          onSelectionChange={handleSelectionChange}
         />
         {isLoadingDetail ? (
           <div className="bg-background border border-border rounded-lg flex flex-col items-center justify-center p-8">
@@ -137,7 +152,10 @@ export function LaboratoryView({
         ) : (
           <BatchDetailPanel
             batch={batchDetail}
+            selectedBatchIds={selectedIds}
+            selectedBatchSummaries={selectedBatchSummaries}
             onClose={handleCloseDetail}
+            onClearSelection={handleClearSelection}
           />
         )}
       </div>

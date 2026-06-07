@@ -43,3 +43,20 @@ export const updateBatchLabResultsSchema = z.object({
 export type UpdateBatchLabResultsInput = z.infer<
   typeof updateBatchLabResultsSchema
 >;
+
+export const bulkUpdateBatchStatusSchema = z.object({
+  batch_ids: z
+    .array(z.coerce.number().int().positive())
+    .min(1, "At least one batch must be selected"),
+  status: z.enum(["TESTING", "PASTEURIZED", "AVAILABLE", "DISPOSED"], {
+    message: "Status is required",
+  }),
+  notes: z
+    .string()
+    .max(500, "Notes must be 500 characters or less")
+    .optional(),
+});
+
+export type BulkUpdateBatchStatusInput = z.infer<
+  typeof bulkUpdateBatchStatusSchema
+>;
