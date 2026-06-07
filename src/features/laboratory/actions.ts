@@ -214,42 +214,94 @@ export async function bulkUpdateBatchStatus(rawInput: unknown) {
   const foundIds = batches.map((b) => b.batch_id);
 
   await db.$transaction(async (tx) => {
-    await tx.batch.updateMany({
-      where: { batch_id: { in: foundIds } },
-      data: { status: input.status },
-    });
+    if (input.status) {
+      await tx.batch.updateMany({
+        where: { batch_id: { in: foundIds } },
+        data: { status: input.status },
+      });
+    }
 
-    if (input.notes) {
+    const hasPreColony = input.pre_pasteurization_colony_count != null;
+    const hasPostColony = input.post_pasteurization_colony_count != null;
+    const hasNotes = !!input.notes;
+    const hasAnyLabData = hasPreColony || hasPostColony || hasNotes;
+
+    if (hasAnyLabData) {
       for (const batchId of foundIds) {
-        const existing = await tx.labResult.findFirst({
-          where: { batch_id: batchId, stage: "PRE_PASTEURIZATION" },
-        });
+        if (hasPreColony || hasNotes) {
+          const existingPre = await tx.labResult.findFirst({
+            where: { batch_id: batchId, stage: "PRE_PASTEURIZATION" },
+          });
 
-        if (existing) {
-          await tx.labResult.update({
-            where: { lab_id: existing.lab_id },
-            data: { remarks: input.notes },
+          const preData = {
+            colony_count: hasPreColony
+              ? input.pre_pasteurization_colony_count!
+              : existingPre?.colony_count ?? null,
+            remarks: hasNotes ? input.notes! : existingPre?.remarks ?? null,
+            test_date: new Date(),
+            tested_by: user.user_id,
+          };
+
+          if (existingPre) {
+            await tx.labResult.update({
+              where: { lab_id: existingPre.lab_id },
+              data: preData,
+            });
+          } else {
+            await tx.labResult.create({
+              data: {
+                batch_id: batchId,
+                stage: "PRE_PASTEURIZATION",
+                result: "PENDING",
+                ...preData,
+              },
+            });
+          }
+        }
+
+        if (hasPostColony) {
+          const existingPost = await tx.labResult.findFirst({
+            where: { batch_id: batchId, stage: "POST_PASTEURIZATION" },
           });
-        } else {
-          await tx.labResult.create({
-            data: {
-              batch_id: batchId,
-              stage: "PRE_PASTEURIZATION",
-              result: "PENDING",
-              test_date: new Date(),
-              tested_by: user.user_id,
-              remarks: input.notes,
-            },
-          });
+
+          if (existingPost) {
+            await tx.labResult.update({
+              where: { lab_id: existingPost.lab_id },
+              data: {
+                colony_count: input.post_pasteurization_colony_count!,
+                test_date: new Date(),
+                tested_by: user.user_id,
+              },
+            });
+          } else {
+            await tx.labResult.create({
+              data: {
+                batch_id: batchId,
+                stage: "POST_PASTEURIZATION",
+                result: "PENDING",
+                test_date: new Date(),
+                tested_by: user.user_id,
+                colony_count: input.post_pasteurization_colony_count!,
+              },
+            });
+          }
         }
       }
     }
 
     const codes = batches.map((b) => b.batch_code).join(", ");
+    const detailParts = [
+      input.status ? `status → ${input.status}` : "",
+      hasPreColony ? `pre-colony: ${input.pre_pasteurization_colony_count}` : "",
+      hasPostColony ? `post-colony: ${input.post_pasteurization_colony_count}` : "",
+      hasNotes ? `notes: ${input.notes}` : "",
+    ].filter(Boolean);
+    const detailSuffix = detailParts.length > 0 ? ` — ${detailParts.join(", ")}` : "";
+
     await tx.auditLog.create({
       data: {
         user_id: user.user_id,
-        action_details: `Bulk updated ${batches.length} batch(es) [${codes}] status → ${input.status}${input.notes ? `, notes: ${input.notes}` : ""}`,
+        action_details: `Bulk updated ${batches.length} batch(es) [${codes}]${detailSuffix}`,
       },
     });
   });

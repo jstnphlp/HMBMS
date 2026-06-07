@@ -100,24 +100,40 @@ function BulkEditPanel({
 }) {
   const [bulkStatus, setBulkStatus] = useState<string>("");
   const [bulkNotes, setBulkNotes] = useState("");
+  const [activeStage, setActiveStage] = useState<
+    "PRE_PASTEURIZATION" | "POST_PASTEURIZATION"
+  >("PRE_PASTEURIZATION");
+  const [colonyCount, setColonyCount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const hasAnyBulkField =
+    !!bulkStatus || !!bulkNotes.trim() || colonyCount !== "";
+
   async function handleBulkSave() {
-    if (!bulkStatus) {
-      toast.error("Select a target status before saving.");
+    if (!hasAnyBulkField) {
+      toast.error("Fill in at least one field before saving.");
       return;
     }
 
     setIsSubmitting(true);
 
+    const colonyCountNum =
+      colonyCount !== "" ? Number(colonyCount) : undefined;
+
     const response = await bulkUpdateBatchStatus({
       batch_ids: selectedBatchSummaries.map((b) => b.batch_id),
-      status: bulkStatus as
-        | "TESTING"
-        | "PASTEURIZED"
-        | "AVAILABLE"
-        | "DISPOSED",
+      status: bulkStatus
+        ? (bulkStatus as
+            | "TESTING"
+            | "PASTEURIZED"
+            | "AVAILABLE"
+            | "DISPOSED")
+        : undefined,
       notes: bulkNotes.trim() || undefined,
+      pre_pasteurization_colony_count:
+        activeStage === "PRE_PASTEURIZATION" ? colonyCountNum : undefined,
+      post_pasteurization_colony_count:
+        activeStage === "POST_PASTEURIZATION" ? colonyCountNum : undefined,
     });
 
     if (response.success) {
@@ -126,6 +142,7 @@ function BulkEditPanel({
       );
       setBulkNotes("");
       setBulkStatus("");
+      setColonyCount("");
       onClearSelection();
     } else {
       const errors = response.errors;
@@ -221,6 +238,59 @@ function BulkEditPanel({
 
         <Separator className="bg-border/50" />
 
+        {/* Bulk Test Results */}
+        <section>
+          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
+            Test Results
+          </h4>
+
+          <div className="flex gap-1 mb-4 bg-muted p-[3px] rounded-md">
+            <button
+              onClick={() => setActiveStage("PRE_PASTEURIZATION")}
+              className={cn(
+                "flex-1 py-1.5 px-2 text-[11px] font-medium rounded transition-all",
+                activeStage === "PRE_PASTEURIZATION"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Pre-Pasteurization
+            </button>
+            <button
+              onClick={() => setActiveStage("POST_PASTEURIZATION")}
+              className={cn(
+                "flex-1 py-1.5 px-2 text-[11px] font-medium rounded transition-all",
+                activeStage === "POST_PASTEURIZATION"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Post-Pasteurization
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                {activeStage === "PRE_PASTEURIZATION"
+                  ? "Pre-Pasteurization"
+                  : "Post-Pasteurization"}{" "}
+                Colony Count (CFU/mL)
+              </Label>
+              <Input
+                type="number"
+                min={0}
+                value={colonyCount}
+                onChange={(e) => setColonyCount(e.target.value)}
+                placeholder="e.g. 15000"
+                className="mt-1.5 h-8 text-xs bg-background border-border"
+              />
+            </div>
+          </div>
+        </section>
+
+        <Separator className="bg-border/50" />
+
         {/* Bulk Status Selector */}
         <section>
           <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
@@ -278,7 +348,7 @@ function BulkEditPanel({
         <Button
           size="sm"
           className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-medium"
-          disabled={isSubmitting || !bulkStatus}
+          disabled={isSubmitting || !hasAnyBulkField}
           onClick={handleBulkSave}
         >
           {isSubmitting ? (
