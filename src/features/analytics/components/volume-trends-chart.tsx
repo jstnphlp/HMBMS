@@ -11,21 +11,19 @@ import {
   Legend,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/core/ui/card";
+import type { VolumeTrendPoint } from "../queries";
 
-interface VolumeDataPoint {
-  week: string;
-  donated: number;
-  dispensed: number;
+interface VolumeTrendsChartProps {
+  data: VolumeTrendPoint[];
 }
 
-const volumeData: VolumeDataPoint[] = [
-  { week: "Week 1", donated: 950, dispensed: 640 },
-  { week: "Week 2", donated: 1180, dispensed: 1020 },
-  { week: "Week 3", donated: 800, dispensed: 880 },
-  { week: "Week 4", donated: 1320, dispensed: 1280 },
-];
+export function VolumeTrendsChart({ data }: VolumeTrendsChartProps) {
+  const chartData = data.map((d) => ({
+    week: d.week,
+    donated: d.input,
+    dispensed: d.output,
+  }));
 
-export function VolumeTrendsChart() {
   return (
     <Card className="col-span-12 lg:col-span-8">
       <CardHeader className="border-b border-border bg-card">
@@ -37,7 +35,7 @@ export function VolumeTrendsChart() {
         <div className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
-              data={volumeData}
+              data={chartData}
               margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
               barCategoryGap="25%"
             >
@@ -73,7 +71,10 @@ export function VolumeTrendsChart() {
                 height={36}
                 iconType="square"
                 iconSize={10}
-                wrapperStyle={{ fontSize: "12px", color: "var(--muted-foreground)" }}
+                wrapperStyle={{
+                  fontSize: "12px",
+                  color: "var(--muted-foreground)",
+                }}
               />
               <Bar
                 dataKey="donated"

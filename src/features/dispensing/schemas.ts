@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 export const createDispensingSchema = z.object({
-  batch_id: z.number().int().positive("Batch is required"),
-  beneficiary_id: z.number().int().positive("Beneficiary is required"),
-  dispensed_by: z.number().int().positive("Dispenser is required"),
+  batch_id: z.coerce.number().int().positive("Batch is required"),
+  beneficiary_id: z.coerce.number().int().positive("Beneficiary is required"),
+  dispensed_by: z.coerce.number().int().positive("Dispenser is required"),
   dispensing_date: z.coerce.date().default(() => new Date()),
   volume: z
     .number()

@@ -4,7 +4,7 @@ import {
   getDispensingLogs,
   getAvailableBatches,
 } from "@/features/dispensing/queries";
-import { DispensingPageContent } from "@/features/dispensing/components/dispensing-page-content";
+import { DispensingView } from "@/features/dispensing/components/dispensing-view";
 
 export default async function DispensingPage() {
   const [metrics, beneficiaries, logs, batches] = await Promise.all([
@@ -15,7 +15,7 @@ export default async function DispensingPage() {
   ]);
 
   return (
-    <DispensingPageContent
+    <DispensingView
       metrics={metrics}
       beneficiaries={beneficiaries}
       logs={logs}

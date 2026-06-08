@@ -10,12 +10,35 @@ import {
 } from "@/core/ui/select";
 import { Input } from "@/core/ui/input";
 import { Label } from "@/core/ui/label";
-import { BarChart3, Download, Plus } from "lucide-react";
+import { BarChart3, Download, Plus, Loader2 } from "lucide-react";
 
-export function ReportFilters() {
+interface ReportFiltersProps {
+  reportType: string;
+  onReportTypeChange: (value: string) => void;
+  program: string;
+  onProgramChange: (value: string) => void;
+  dateFrom: string;
+  onDateFromChange: (value: string) => void;
+  dateTo: string;
+  onDateToChange: (value: string) => void;
+  onGenerate: () => void;
+  isPending: boolean;
+}
+
+export function ReportFilters({
+  reportType,
+  onReportTypeChange,
+  program,
+  onProgramChange,
+  dateFrom,
+  onDateFromChange,
+  dateTo,
+  onDateToChange,
+  onGenerate,
+  isPending,
+}: ReportFiltersProps) {
   return (
     <div className="flex flex-col gap-4">
-      {/* Page Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-lg leading-8 font-semibold tracking-tight text-foreground">
@@ -26,11 +49,11 @@ export function ReportFilters() {
           </p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" disabled>
             <Download className="h-4 w-4" />
             Export All
           </Button>
-          <Button size="sm">
+          <Button size="sm" disabled>
             <Plus className="h-4 w-4" />
             <BarChart3 className="h-4 w-4" />
             New Custom Report
@@ -38,22 +61,21 @@ export function ReportFilters() {
         </div>
       </div>
 
-      {/* Filters Bar */}
       <div className="flex flex-col gap-4 rounded border border-border bg-card p-4 lg:flex-row lg:items-end">
         <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs font-medium text-muted-foreground">
               Report Type
             </Label>
-            <Select defaultValue="inventory">
+            <Select value={reportType} onValueChange={onReportTypeChange}>
               <SelectTrigger className="bg-card">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="inventory">Inventory Levels</SelectItem>
-                <SelectItem value="donor">Donor Acquisition</SelectItem>
-                <SelectItem value="dispensation">Dispensation Logs</SelectItem>
-                <SelectItem value="lab">Lab Testing Yields</SelectItem>
+                <SelectItem value="Inventory Levels">Inventory Levels</SelectItem>
+                <SelectItem value="Donor Acquisition">Donor Acquisition</SelectItem>
+                <SelectItem value="Dispensation Logs">Dispensation Logs</SelectItem>
+                <SelectItem value="Lab Testing Yields">Lab Testing Yields</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -61,15 +83,15 @@ export function ReportFilters() {
             <Label className="text-xs font-medium text-muted-foreground">
               Program Focus
             </Label>
-            <Select defaultValue="all">
+            <Select value={program} onValueChange={onProgramChange}>
               <SelectTrigger className="bg-card">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Programs</SelectItem>
-                <SelectItem value="supsup">Supsup Todo</SelectItem>
-                <SelectItem value="milkyway">Milky Way</SelectItem>
-                <SelectItem value="momsact">{"Mom's Act"}</SelectItem>
+                <SelectItem value="ALL">All Programs</SelectItem>
+                <SelectItem value="SUPSUP_TODO">Supsup Todo</SelectItem>
+                <SelectItem value="MILKY_WAY">Milky Way</SelectItem>
+                <SelectItem value="MOMS_ACT">{"Mom's Act"}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -77,21 +99,35 @@ export function ReportFilters() {
             <Label className="text-xs font-medium text-muted-foreground">
               Date Range (Start)
             </Label>
-            <Input type="date" defaultValue="2023-09-01" className="bg-card" />
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => onDateFromChange(e.target.value)}
+              className="bg-card"
+            />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs font-medium text-muted-foreground">
               Date Range (End)
             </Label>
-            <Input type="date" defaultValue="2023-10-31" className="bg-card" />
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => onDateToChange(e.target.value)}
+              className="bg-card"
+            />
           </div>
         </div>
         <div className="flex items-end border-l border-border pl-4">
           <Button
-            variant="secondary"
             size="sm"
-            className="font-semibold"
+            className="bg-primary text-primary-foreground font-semibold"
+            disabled={isPending}
+            onClick={onGenerate}
           >
+            {isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+            ) : null}
             Generate
           </Button>
         </div>

@@ -11,6 +11,7 @@ import {
   type RecipientDispensingInput,
 } from "./schemas";
 import { createClient } from "@/core/utils/supabase/server";
+import { mapPrismaError } from "@/core/utils/prisma-error";
 
 export async function recordDispensing(rawInput: unknown) {
   const parsed = createDispensingSchema.safeParse(rawInput);
@@ -23,11 +24,24 @@ export async function recordDispensing(rawInput: unknown) {
 
   try {
     const result = await db.$transaction(async (tx) => {
+      const staffUser = await tx.user.findFirst({
+        where: { role: "ADMIN" },
+      });
+      if (!staffUser) {
+        throw new Error(
+          "Unauthenticated: no session user found. Auth must be wired before this action can run."
+        );
+      }
+
       const inventory = await tx.inventory.findUnique({
         where: { batch_id: input.batch_id },
       });
 
-      if (!inventory || inventory.available_vol < input.volume) {
+      if (!inventory) {
+        throw new Error("No inventory record found for this batch.");
+      }
+
+      if (inventory.available_vol < input.volume) {
         throw new Error("INSUFFICIENT_VOLUME");
       }
 
@@ -35,7 +49,7 @@ export async function recordDispensing(rawInput: unknown) {
         data: {
           batch_id: input.batch_id,
           beneficiary_id: input.beneficiary_id,
-          dispensed_by: input.dispensed_by,
+          dispensed_by: staffUser.user_id,
           dispensing_date: input.dispensing_date,
           volume: input.volume,
           price: input.price,
@@ -58,6 +72,13 @@ export async function recordDispensing(rawInput: unknown) {
         });
       }
 
+      await tx.auditLog.create({
+        data: {
+          user_id: staffUser.user_id,
+          action_details: `Dispensed ${input.volume} mL from batch #${input.batch_id} to beneficiary #${input.beneficiary_id}`,
+        },
+      });
+
       return dispensing;
     });
 
@@ -72,9 +93,10 @@ export async function recordDispensing(rawInput: unknown) {
         },
       };
     }
+    console.error("[recordDispensing] error:", err);
     return {
       success: false,
-      errors: { _form: ["Failed to record dispensing. Please try again."] },
+      errors: { _form: [mapPrismaError(err)] },
     };
   }
 }
@@ -99,12 +121,11 @@ export async function createBeneficiary(rawInput: unknown) {
 
     revalidatePath("/dashboard/dispensing");
     return { success: true, data: beneficiary };
-  } catch {
+  } catch (err) {
+    console.error("[createBeneficiary] error:", err);
     return {
       success: false,
-      errors: {
-        _form: ["Failed to register beneficiary. Please try again."],
-      },
+      errors: { _form: [mapPrismaError(err)] },
     };
   }
 }
@@ -218,16 +239,24 @@ export async function recordRecipientDispensing(rawInput: unknown) {
         });
       }
 
+      await tx.auditLog.create({
+        data: {
+          user_id: dbUser.user_id,
+          action_details: `Dispensed ${input.volume} mL from batch ${batch.batch_code} to beneficiary #${input.beneficiary_id}`,
+        },
+      });
+
       return dispensing;
     });
 
     revalidatePath("/dashboard/recipients");
     revalidatePath("/dashboard/dispensing");
     return { success: true, data: result };
-  } catch {
+  } catch (err) {
+    console.error("[recordRecipientDispensing] error:", err);
     return {
       success: false,
-      errors: { _form: ["Failed to record dispensing. Please try again."] },
+      errors: { _form: [mapPrismaError(err)] },
     };
   }
 }

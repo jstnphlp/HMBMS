@@ -72,6 +72,7 @@ export async function getDonorsWithStats(
 
   const donors = await db.donor.findMany({
     where,
+    take: 100,
     include: {
       collections: {
         orderBy: { collection_date: "desc" },
@@ -120,7 +121,7 @@ export async function getDonorById(
     include: {
       collections: {
         orderBy: { collection_date: "desc" },
-        include: { batch: true, recorder: true },
+        include: { batch: true, recorder: { select: { user_id: true, email: true, full_name: true } } },
       },
     },
   });

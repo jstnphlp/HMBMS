@@ -9,20 +9,35 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/core/ui/card";
 import { cn } from "@/core/utils/cn";
+import type { ProgramDistSegment } from "../queries";
 
-interface ProgramSegment {
-  name: string;
-  value: number;
-  color: string;
+interface ProgramDistributionChartProps {
+  data: ProgramDistSegment[];
 }
 
-const programData: ProgramSegment[] = [
-  { name: "NICU Level III", value: 60, color: "var(--primary)" },
-  { name: "Step-Down Unit", value: 25, color: "var(--chart-4)" },
-  { name: "Outpatient / Community", value: 15, color: "var(--chart-5)" },
-];
+const PROGRAM_COLORS: Record<string, string> = {
+  SUPSUP_TODO: "var(--primary)",
+  MILKY_WAY: "var(--chart-4)",
+  MOMS_ACT: "var(--chart-5)",
+};
 
-export function ProgramDistributionChart() {
+const PROGRAM_LABELS: Record<string, string> = {
+  SUPSUP_TODO: "Supsup Todo",
+  MILKY_WAY: "Milky Way",
+  MOMS_ACT: "Mom's Act",
+};
+
+export function ProgramDistributionChart({
+  data,
+}: ProgramDistributionChartProps) {
+  const chartData = data.map((d) => ({
+    name: PROGRAM_LABELS[d.program] ?? d.program,
+    value: d.percentage,
+    color: PROGRAM_COLORS[d.program] ?? "var(--muted-foreground)",
+  }));
+
+  const total = chartData.reduce((sum, d) => sum + d.value, 0);
+
   return (
     <Card className="col-span-12 lg:col-span-4">
       <CardHeader className="border-b border-border bg-card">
@@ -35,7 +50,7 @@ export function ProgramDistributionChart() {
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
-                data={programData}
+                data={chartData}
                 cx="50%"
                 cy="50%"
                 innerRadius={50}
@@ -44,7 +59,7 @@ export function ProgramDistributionChart() {
                 dataKey="value"
                 strokeWidth={0}
               >
-                {programData.map((entry) => (
+                {chartData.map((entry) => (
                   <Cell key={entry.name} fill={entry.color} />
                 ))}
               </Pie>
@@ -61,11 +76,18 @@ export function ProgramDistributionChart() {
             </PieChart>
           </ResponsiveContainer>
           <div className="absolute inset-0 m-auto flex h-24 w-24 items-center justify-center rounded-full bg-card shadow-inner">
-            <span className="text-lg font-bold text-foreground">100%</span>
+            <span className="text-lg font-bold text-foreground">
+              {total > 0 ? `${Math.round(total)}%` : "—"}
+            </span>
           </div>
         </div>
         <div className="flex w-full flex-col gap-2 text-xs">
-          {programData.map((segment) => (
+          {chartData.length === 0 && (
+            <p className="text-center text-muted-foreground py-4">
+              No program data in this range.
+            </p>
+          )}
+          {chartData.map((segment) => (
             <div
               key={segment.name}
               className="flex items-center justify-between rounded px-2 py-1 hover:bg-muted transition-colors"

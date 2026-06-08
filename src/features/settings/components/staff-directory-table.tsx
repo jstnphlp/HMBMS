@@ -15,16 +15,20 @@ import { Settings } from "lucide-react";
 interface StaffMember {
   user_id: number;
   email: string;
+  full_name: string;
   role: string;
+  is_active: boolean;
+  created_at: Date;
 }
 
-const roleDepartments: Record<string, string> = {
-  ADMIN: "Administration",
-  STAFF: "Clinical Operations",
-  DONOR: "Donor Services",
-};
-
-function getInitials(email: string): string {
+function getInitials(fullName: string, email: string): string {
+  if (fullName && fullName.trim().length > 0) {
+    return fullName
+      .split(/\s+/)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .slice(0, 2)
+      .join("");
+  }
   return email
     .split("@")[0]
     .split(/[._-]/)
@@ -33,20 +37,12 @@ function getInitials(email: string): string {
     .join("");
 }
 
-function getAvatarColor(userId: number): string {
-  const colors = [
-    "bg-primary/10 text-primary",
-    "bg-secondary text-secondary-foreground",
-    "bg-accent text-accent-foreground",
-  ];
-  return colors[userId % colors.length] ?? colors[0];
-}
-
 interface StaffDirectoryTableProps {
   staff: StaffMember[];
+  onEdit?: (member: StaffMember) => void;
 }
 
-export function StaffDirectoryTable({ staff }: StaffDirectoryTableProps) {
+export function StaffDirectoryTable({ staff, onEdit }: StaffDirectoryTableProps) {
   return (
     <div className="flex flex-col border border-border bg-background rounded-sm">
       <div className="border-b border-border bg-muted p-4 rounded-t-sm">
@@ -60,13 +56,13 @@ export function StaffDirectoryTable({ staff }: StaffDirectoryTableProps) {
             <TableRow className="border-b border-border bg-background hover:bg-background">
               <TableHead className="w-12 py-2 px-4" />
               <TableHead className="py-2 px-4 font-semibold text-muted-foreground">
-                Name
+                Full Name
+              </TableHead>
+              <TableHead className="py-2 px-4 font-semibold text-muted-foreground">
+                Username
               </TableHead>
               <TableHead className="py-2 px-4 font-semibold text-muted-foreground">
                 Role
-              </TableHead>
-              <TableHead className="py-2 px-4 font-semibold text-muted-foreground">
-                Department
               </TableHead>
               <TableHead className="py-2 px-4 font-semibold text-muted-foreground">
                 Status
@@ -81,31 +77,42 @@ export function StaffDirectoryTable({ staff }: StaffDirectoryTableProps) {
               <TableRow
                 key={member.user_id}
                 className={
-                  index % 2 === 1 ? "bg-muted/50" : "bg-background"
+                  index % 2 === 1 ? "bg-muted/40" : "bg-background"
                 }
               >
-                <TableCell className="py-2 px-4">
-                  <div
-                    className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${getAvatarColor(member.user_id)}`}
-                  >
-                    {getInitials(member.email)}
+                <TableCell className="py-2 px-4 h-10">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
+                    {getInitials(member.full_name, member.email)}
                   </div>
                 </TableCell>
                 <TableCell className="py-2 px-4 font-medium text-foreground">
+                  {member.full_name || "—"}
+                </TableCell>
+                <TableCell className="py-2 px-4 text-muted-foreground">
                   {member.email}
-                </TableCell>
-                <TableCell className="py-2 px-4 text-muted-foreground">
-                  {member.role}
-                </TableCell>
-                <TableCell className="py-2 px-4 text-muted-foreground">
-                  {roleDepartments[member.role] ?? "General"}
                 </TableCell>
                 <TableCell className="py-2 px-4">
                   <Badge
                     variant="default"
-                    className="bg-primary/10 text-primary border-transparent text-[11px]"
+                    className={
+                      member.role === "ADMIN"
+                        ? "bg-primary/10 text-primary border-transparent text-[11px]"
+                        : "bg-muted text-muted-foreground border-transparent text-[11px]"
+                    }
                   >
-                    Active
+                    {member.role}
+                  </Badge>
+                </TableCell>
+                <TableCell className="py-2 px-4">
+                  <Badge
+                    variant="default"
+                    className={
+                      member.is_active
+                        ? "bg-primary/10 text-primary border-transparent text-[11px]"
+                        : "bg-muted text-muted-foreground border-transparent text-[11px]"
+                    }
+                  >
+                    {member.is_active ? "Active" : "Inactive"}
                   </Badge>
                 </TableCell>
                 <TableCell className="py-2 px-4 text-right">
@@ -113,6 +120,8 @@ export function StaffDirectoryTable({ staff }: StaffDirectoryTableProps) {
                     variant="ghost"
                     size="icon-xs"
                     className="text-muted-foreground hover:text-primary"
+                    title="Edit staff member"
+                    onClick={() => onEdit?.(member)}
                   >
                     <Settings className="h-4 w-4" />
                   </Button>
@@ -131,14 +140,6 @@ export function StaffDirectoryTable({ staff }: StaffDirectoryTableProps) {
             )}
           </TableBody>
         </Table>
-      </div>
-      <div className="flex justify-center border-t border-border bg-background p-3">
-        <Button
-          variant="link"
-          className="text-primary text-xs font-medium"
-        >
-          View All Staff Directory
-        </Button>
       </div>
     </div>
   );

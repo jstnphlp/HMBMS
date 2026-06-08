@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/core/utils/cn";
 import {
+  LayoutDashboard,
   Droplets,
   Users,
   Baby,
@@ -11,9 +12,9 @@ import {
   Truck,
   BarChart3,
   Settings,
-  HelpCircle,
   LogOut,
 } from "lucide-react";
+import { logout } from "@/features/auth/actions";
 
 interface NavItem {
   label: string;
@@ -22,6 +23,7 @@ interface NavItem {
 }
 
 const mainNav: NavItem[] = [
+  { label: "Home", href: "/dashboard", icon: LayoutDashboard },
   { label: "Inventory", href: "/dashboard/inventory", icon: Droplets },
   { label: "Donors", href: "/dashboard/donors", icon: Users },
   { label: "Recipients", href: "/dashboard/recipients", icon: Baby },
@@ -32,8 +34,7 @@ const mainNav: NavItem[] = [
 ];
 
 const bottomNav: NavItem[] = [
-  { label: "Help", href: "/dashboard/help", icon: HelpCircle },
-  { label: "Sign Out", href: "/login", icon: LogOut },
+  { label: "Sign Out", href: "#sign-out", icon: LogOut },
 ];
 
 function SidebarLink({
@@ -71,10 +72,10 @@ export function SidebarNav() {
       {/* Clinic header */}
       <div className="mb-6 mt-4 px-4">
         <h2 className="text-lg leading-8 font-semibold tracking-tight text-foreground">
-          Main Clinic
+          Makati Branch
         </h2>
         <p className="text-xs leading-4 font-medium tracking-wide text-muted-foreground">
-          Station 04-B
+          Ospital ng Makati
         </p>
       </div>
 
@@ -84,20 +85,40 @@ export function SidebarNav() {
           <SidebarLink
             key={item.href}
             item={item}
-            active={pathname === item.href || pathname.startsWith(item.href + "/")}
+            active={
+              item.href === "/dashboard"
+                ? pathname === "/dashboard"
+                : pathname === item.href || pathname.startsWith(item.href + "/")
+            }
           />
         ))}
       </ul>
 
       {/* Bottom nav */}
       <ul className="mt-auto flex flex-col pb-4">
-        {bottomNav.map((item) => (
-          <SidebarLink
-            key={item.href}
-            item={item}
-            active={pathname === item.href || pathname.startsWith(item.href + "/")}
-          />
-        ))}
+        {bottomNav.map((item) =>
+          item.href === "#sign-out" ? (
+            <li key={item.label} className="mb-1 px-3">
+              <button
+                onClick={() => logout()}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-none px-3 py-2 transition-all active:opacity-80 text-muted-foreground hover:bg-accent"
+                )}
+              >
+                <item.icon className="h-5 w-5" />
+                <span className="text-xs leading-4 font-medium tracking-wide">
+                  {item.label}
+                </span>
+              </button>
+            </li>
+          ) : (
+            <SidebarLink
+              key={item.href}
+              item={item}
+              active={pathname === item.href || pathname.startsWith(item.href + "/")}
+            />
+          )
+        )}
       </ul>
     </nav>
   );

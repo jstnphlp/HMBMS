@@ -47,6 +47,7 @@ export interface RecipientMetrics {
 
 export async function getRecipientsWithStats(): Promise<RecipientWithStats[]> {
   const beneficiaries = await db.beneficiary.findMany({
+    take: 100,
     include: {
       dispensings: {
         orderBy: { dispensing_date: "desc" },

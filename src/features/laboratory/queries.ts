@@ -55,6 +55,7 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
         in: ["TESTING", "PASTEURIZED", "POOLING", "AVAILABLE", "DISPOSED"],
       },
     },
+    take: 100,
     include: {
       labResults: {
         orderBy: { test_date: "desc" },

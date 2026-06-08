@@ -72,7 +72,7 @@ async function main() {
   // ── 3. Users ──────────────────────────────────────────────────────────
   console.log("Creating users...");
   const admin = await prisma.user.create({
-    data: { auth_id: authId, email: SEED_EMAIL, role: "ADMIN" },
+    data: { auth_id: authId, email: SEED_EMAIL, role: "ADMIN", full_name: "Administrator" },
   });
 
   const staff1 = await prisma.user.create({
@@ -80,6 +80,7 @@ async function main() {
       auth_id: `seed-staff-1-${Date.now()}`,
       email: "staff.maria@makatimilkbank.gov",
       role: "STAFF",
+      full_name: "Maria Santos",
     },
   });
 
@@ -88,6 +89,7 @@ async function main() {
       auth_id: `seed-staff-2-${Date.now()}`,
       email: "staff.ana@makatimilkbank.gov",
       role: "STAFF",
+      full_name: "Ana Reyes",
     },
   });
 

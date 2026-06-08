@@ -219,7 +219,7 @@ export function NewDispensingForm({
               <p className="text-xs text-destructive mt-1 flex items-center gap-1">
                 <AlertCircle className="size-3" />
                 Volume exceeds available stock (
-                {selectedBatch.available_vol.toLocaleString()} mL)
+                {selectedBatch?.available_vol.toLocaleString()} mL)
               </p>
             )}
             {errors?.volume && (

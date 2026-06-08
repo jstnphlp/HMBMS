@@ -3,26 +3,30 @@ import {
   Droplets,
   FlaskConical,
   Heart,
-  AlertTriangle,
-  TrendingUp,
+  Truck,
 } from "lucide-react";
+
+interface DashboardSummary {
+  totalStock: number;
+  pendingLabTests: number;
+  activeDonors: number;
+  awaitingDispensing: number;
+}
 
 interface MetricCardProps {
   label: string;
   value: string;
   icon: React.ElementType;
   iconClassName?: string;
-  trend?: { value: string; positive?: boolean };
   badge?: { text: string; variant: "urgent" | "default" };
   subtext?: string;
 }
 
-export function MetricCard({
+function MetricCard({
   label,
   value,
   icon: Icon,
   iconClassName,
-  trend,
   badge,
   subtext,
 }: MetricCardProps) {
@@ -36,12 +40,6 @@ export function MetricCard({
       </div>
       <div className="flex items-baseline gap-2">
         <span className="text-2xl font-bold text-foreground">{value}</span>
-        {trend && (
-          <span className="flex items-center gap-0.5 text-xs font-medium text-primary">
-            <TrendingUp className="h-3 w-3" />
-            {trend.value}
-          </span>
-        )}
         {badge && (
           <span
             className={cn(
@@ -62,33 +60,37 @@ export function MetricCard({
   );
 }
 
-export function MetricCards() {
+export function MetricCards({
+  summary,
+}: {
+  summary: DashboardSummary;
+}) {
   return (
     <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
       <MetricCard
         label="Total Stock (mL)"
-        value="142,500"
+        value={summary.totalStock.toLocaleString()}
         icon={Droplets}
-        trend={{ value: "+5.2%", positive: true }}
       />
       <MetricCard
         label="Pending Lab Tests"
-        value="34"
+        value={summary.pendingLabTests.toLocaleString()}
         icon={FlaskConical}
-        badge={{ text: "12 URGENT", variant: "urgent" }}
+        badge={
+          summary.pendingLabTests > 0
+            ? { text: `${summary.pendingLabTests} PENDING`, variant: "urgent" }
+            : undefined
+        }
       />
       <MetricCard
         label="Active Donors"
-        value="128"
+        value={summary.activeDonors.toLocaleString()}
         icon={Heart}
-        trend={{ value: "+12 this mo", positive: true }}
       />
       <MetricCard
-        label="Urgent Requests"
-        value="5"
-        icon={AlertTriangle}
-        iconClassName="text-destructive"
-        subtext="NICU Wards"
+        label="Batches Awaiting Dispensing"
+        value={summary.awaitingDispensing.toLocaleString()}
+        icon={Truck}
       />
     </div>
   );
