@@ -56,11 +56,14 @@ enum CollectionStatus {
 }
 
 model User {
-  user_id  Int     @id @default(autoincrement())
-  auth_id  String  @unique
-  email    String  @unique
-  password String?
-  role     Role    @default(STAFF)
+  user_id    Int      @id @default(autoincrement())
+  auth_id    String   @unique
+  email      String   @unique
+  password   String?
+  role       Role     @default(STAFF)
+  full_name  String   @default("")
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
 
   donors      Donor[]
   collections Collection[] @relation("RecordedBy")
@@ -69,6 +72,7 @@ model User {
   inventory   Inventory[]
   dispensings Dispensing[]
   disposals   Disposal[]
+  reports     Report[]
   auditLogs   AuditLog[]
 }
 
@@ -227,4 +231,17 @@ model AuditLog {
   action_details String
 
   user User @relation(fields: [user_id], references: [user_id])
+}
+
+model Report {
+  report_id    Int      @id @default(autoincrement())
+  report_code  String   @unique
+  type         String
+  program      Program?
+  date_from    DateTime
+  date_to      DateTime
+  generated_at DateTime @default(now())
+  generated_by Int
+
+  user User @relation(fields: [generated_by], references: [user_id])
 }

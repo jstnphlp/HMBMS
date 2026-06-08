@@ -26,7 +26,7 @@ interface SendSmsModalProps {
 }
 
 function buildSmsTemplate(name: string, volume: number): string {
-  return `Hello ${name}, your prescribed human milk (${volume} mL) is now ready for dispensing at the Main Clinic. Please present your ID upon claiming.`;
+  return `Hello ${name}, your prescribed human milk (${volume} mL) is now ready for dispensing at the Makati Branch. Please present your ID upon claiming.`;
 }
 
 export function SendSmsModal({

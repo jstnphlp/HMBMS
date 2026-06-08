@@ -62,6 +62,7 @@ export async function getDispensingMetrics(): Promise<DispensingMetrics> {
 
 export async function getBeneficiaries(): Promise<BeneficiaryEntry[]> {
   const beneficiaries = await db.beneficiary.findMany({
+    take: 100,
     include: {
       dispensings: {
         orderBy: { dispensing_date: "desc" },

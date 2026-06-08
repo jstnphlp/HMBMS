@@ -3,6 +3,7 @@
 import { db } from "@/core/db";
 import { revalidatePath } from "next/cache";
 import { logDisposalSchema, type LogDisposalInput } from "./schemas";
+import { mapPrismaError } from "@/core/utils/prisma-error";
 
 export async function logDisposal(rawInput: unknown) {
   const parsed = logDisposalSchema.safeParse(rawInput);
@@ -26,7 +27,6 @@ export async function logDisposal(rawInput: unknown) {
         },
       });
 
-      // Update inventory available volume
       const inventory = await tx.inventory.findUnique({
         where: { batch_id: input.batch_id },
       });
@@ -38,7 +38,6 @@ export async function logDisposal(rawInput: unknown) {
         });
       }
 
-      // Mark batch as disposed if fully disposed
       if (inventory && inventory.available_vol - input.volume <= 0) {
         await tx.batch.update({
           where: { batch_id: input.batch_id },
@@ -46,15 +45,23 @@ export async function logDisposal(rawInput: unknown) {
         });
       }
 
+      await tx.auditLog.create({
+        data: {
+          user_id: input.disposed_by,
+          action_details: `Disposed ${input.volume} mL from batch #${input.batch_id}: ${input.reason}`,
+        },
+      });
+
       return record;
     });
 
     revalidatePath("/dashboard/inventory");
     return { success: true, data: disposal };
-  } catch {
+  } catch (err) {
+    console.error("[logDisposal] error:", err);
     return {
       success: false,
-      errors: { _form: ["Failed to log disposal. Please try again."] },
+      errors: { _form: [mapPrismaError(err)] },
     };
   }
 }

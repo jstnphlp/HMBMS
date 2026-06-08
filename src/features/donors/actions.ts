@@ -3,6 +3,7 @@
 import { db } from "@/core/db";
 import { revalidatePath } from "next/cache";
 import { registerDonorSchema, updateDonorSchema, logDropoffSchema } from "./schemas";
+import { mapPrismaError } from "@/core/utils/prisma-error";
 
 export async function registerDonor(formData: FormData) {
   const raw = {
@@ -45,40 +46,54 @@ export async function registerDonor(formData: FormData) {
   });
 
   if (!user) {
-    return {
-      success: false,
-      errors: { _form: ["No admin user found to assign as owner."] },
-    };
+    throw new Error(
+      "Unauthenticated: no session user found. Auth must be wired before this action can run."
+    );
   }
 
-  await db.donor.create({
-    data: {
-      user_id: user.user_id,
-      first_name: data.first_name,
-      middle_name: data.middle_name || null,
-      last_name: data.last_name,
-      birthdate: data.birthdate,
-      address: data.address,
-      contact_no: data.contact_no,
-      civil_status: data.civil_status,
-      religion: data.religion || null,
-      occupation: data.occupation || null,
-      spouse_name: data.spouse_name || null,
-      spouse_occupation: data.spouse_occupation || null,
-      spouse_contact_no: data.spouse_contact_no || null,
-      delivery_date: data.delivery_date ?? null,
-      delivery_place: data.delivery_place || null,
-      delivery_type: data.delivery_type || null,
-      aog: data.aog || null,
-      infant_name: data.infant_name || null,
-      infant_birthdate: data.infant_birthdate ?? null,
-      infant_sex: data.infant_sex || null,
-      infant_birth_weight: data.infant_birth_weight || null,
-    },
-  });
+  try {
+    const donor = await db.donor.create({
+      data: {
+        user_id: user.user_id,
+        first_name: data.first_name,
+        middle_name: data.middle_name || null,
+        last_name: data.last_name,
+        birthdate: data.birthdate,
+        address: data.address,
+        contact_no: data.contact_no,
+        civil_status: data.civil_status,
+        religion: data.religion || null,
+        occupation: data.occupation || null,
+        spouse_name: data.spouse_name || null,
+        spouse_occupation: data.spouse_occupation || null,
+        spouse_contact_no: data.spouse_contact_no || null,
+        delivery_date: data.delivery_date ?? null,
+        delivery_place: data.delivery_place || null,
+        delivery_type: data.delivery_type || null,
+        aog: data.aog || null,
+        infant_name: data.infant_name || null,
+        infant_birthdate: data.infant_birthdate ?? null,
+        infant_sex: data.infant_sex || null,
+        infant_birth_weight: data.infant_birth_weight || null,
+      },
+    });
 
-  revalidatePath("/dashboard/donors");
-  return { success: true };
+    await db.auditLog.create({
+      data: {
+        user_id: user.user_id,
+        action_details: `Registered new donor: ${data.first_name} ${data.last_name} (D-${String(donor.donor_id).padStart(4, "0")})`,
+      },
+    });
+
+    revalidatePath("/dashboard/donors");
+    return { success: true };
+  } catch (err) {
+    console.error("[registerDonor] error:", err);
+    return {
+      success: false,
+      errors: { _form: [mapPrismaError(err)] },
+    };
+  }
 }
 
 export async function updateDonor(donorId: number, formData: FormData) {
@@ -109,27 +124,49 @@ export async function updateDonor(donorId: number, formData: FormData) {
 
   const data = parsed.data;
 
-  await db.donor.update({
-    where: { donor_id: donorId },
-    data: {
-      first_name: data.first_name,
-      middle_name: data.middle_name || null,
-      last_name: data.last_name,
-      birthdate: data.birthdate,
-      address: data.address,
-      contact_no: data.contact_no,
-      civil_status: data.civil_status,
-      religion: data.religion || null,
-      occupation: data.occupation || null,
-      spouse_name: data.spouse_name || null,
-      spouse_occupation: data.spouse_occupation || null,
-      spouse_contact_no: data.spouse_contact_no || null,
-      status: data.status,
-    },
-  });
+  try {
+    await db.donor.update({
+      where: { donor_id: donorId },
+      data: {
+        first_name: data.first_name,
+        middle_name: data.middle_name || null,
+        last_name: data.last_name,
+        birthdate: data.birthdate,
+        address: data.address,
+        contact_no: data.contact_no,
+        civil_status: data.civil_status,
+        religion: data.religion || null,
+        occupation: data.occupation || null,
+        spouse_name: data.spouse_name || null,
+        spouse_occupation: data.spouse_occupation || null,
+        spouse_contact_no: data.spouse_contact_no || null,
+        status: data.status,
+      },
+    });
 
-  revalidatePath("/dashboard/donors");
-  return { success: true };
+    const user = await db.user.findFirst({
+      where: { role: "ADMIN" },
+      select: { user_id: true },
+    });
+
+    if (user) {
+      await db.auditLog.create({
+        data: {
+          user_id: user.user_id,
+          action_details: `Updated donor #${donorId}: ${data.first_name} ${data.last_name}`,
+        },
+      });
+    }
+
+    revalidatePath("/dashboard/donors");
+    return { success: true };
+  } catch (err) {
+    console.error("[updateDonor] error:", err);
+    return {
+      success: false,
+      errors: { _form: [mapPrismaError(err)] },
+    };
+  }
 }
 
 export async function recordDropoff(donorId: number, formData: FormData) {
@@ -164,113 +201,120 @@ export async function recordDropoff(donorId: number, formData: FormData) {
   });
 
   if (!user) {
+    throw new Error(
+      "Unauthenticated: no session user found. Auth must be wired before this action can run."
+    );
+  }
+
+  try {
+    if (data.is_pasteurized) {
+      const bottleNo =
+        data.bottle_no && data.bottle_no.length > 0
+          ? data.bottle_no
+          : `BT-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+      await db.$transaction(async (tx) => {
+        const batch = await tx.batch.create({
+          data: {
+            batch_code: data.batch_no!,
+            pooling_date: data.collection_date,
+            total_volume: data.volume,
+            status: "AVAILABLE",
+            created_by: user.user_id,
+          },
+        });
+
+        await tx.collection.create({
+          data: {
+            donor_id: donorId,
+            recorded_by: user.user_id,
+            program: data.program,
+            collection_date: data.collection_date,
+            volume: data.volume,
+            remarks: data.remarks || null,
+            is_pasteurized: true,
+            status: "READY_FOR_DISPENSING",
+            batch_no: data.batch_no || null,
+            bottle_no: bottleNo,
+            expiration_date: data.expiration_date ?? null,
+            batch_id: batch.batch_id,
+          },
+        });
+
+        await tx.inventory.create({
+          data: {
+            batch_id: batch.batch_id,
+            donated_vol: data.volume,
+            pasteurized_vol: data.volume,
+            available_vol: data.volume,
+            updated_by: user.user_id,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            user_id: user.user_id,
+            action_details: `Recorded pasteurized drop-off (${data.volume} mL) for donor #${donorId}, batch ${data.batch_no}`,
+          },
+        });
+      });
+    } else {
+      await db.$transaction(async (tx) => {
+        const batch = await tx.batch.create({
+          data: {
+            batch_code: `UNP-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+            pooling_date: data.collection_date,
+            total_volume: data.volume,
+            status: "TESTING",
+            created_by: user.user_id,
+          },
+        });
+
+        await tx.collection.create({
+          data: {
+            donor_id: donorId,
+            recorded_by: user.user_id,
+            program: data.program,
+            collection_date: data.collection_date,
+            volume: data.volume,
+            remarks: data.remarks || null,
+            is_pasteurized: false,
+            status: "PENDING_LAB_TEST",
+            dtn: data.dtn || null,
+            aob: data.aob || null,
+            collected_by: data.collected_by || null,
+            expiration_date: data.expiration_date ?? null,
+            batch_id: batch.batch_id,
+          },
+        });
+
+        await tx.labResult.create({
+          data: {
+            batch_id: batch.batch_id,
+            stage: "PRE_PASTEURIZATION",
+            test_date: new Date(),
+            result: "PENDING",
+            tested_by: user.user_id,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            user_id: user.user_id,
+            action_details: `Recorded unpasteurized drop-off (${data.volume} mL) for donor #${donorId}, routed to lab as batch ${batch.batch_code}`,
+          },
+        });
+      });
+    }
+
+    revalidatePath("/dashboard/donors");
+    revalidatePath("/dashboard/laboratory");
+    return { success: true };
+  } catch (err) {
+    console.error("[recordDropoff] error:", err);
     return {
       success: false,
-      errors: { _form: ["No admin user found to record the collection."] },
+      errors: { _form: [mapPrismaError(err)] },
     };
   }
-
-  if (data.is_pasteurized) {
-    const bottleNo =
-      data.bottle_no && data.bottle_no.length > 0
-        ? data.bottle_no
-        : `BT-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-
-    await db.$transaction(async (tx) => {
-      const batch = await tx.batch.create({
-        data: {
-          batch_code: data.batch_no!,
-          pooling_date: data.collection_date,
-          total_volume: data.volume,
-          status: "AVAILABLE",
-          created_by: user.user_id,
-        },
-      });
-
-      await tx.collection.create({
-        data: {
-          donor_id: donorId,
-          recorded_by: user.user_id,
-          program: data.program,
-          collection_date: data.collection_date,
-          volume: data.volume,
-          remarks: data.remarks || null,
-          is_pasteurized: true,
-          status: "READY_FOR_DISPENSING",
-          batch_no: data.batch_no || null,
-          bottle_no: bottleNo,
-          expiration_date: data.expiration_date ?? null,
-          batch_id: batch.batch_id,
-        },
-      });
-
-      await tx.inventory.create({
-        data: {
-          batch_id: batch.batch_id,
-          donated_vol: data.volume,
-          pasteurized_vol: data.volume,
-          available_vol: data.volume,
-          updated_by: user.user_id,
-        },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          user_id: user.user_id,
-          action_details: `Recorded pasteurized drop-off (${data.volume} mL) for donor #${donorId}, batch ${data.batch_no}`,
-        },
-      });
-    });
-  } else {
-    await db.$transaction(async (tx) => {
-      const batch = await tx.batch.create({
-        data: {
-          batch_code: `UNP-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
-          pooling_date: data.collection_date,
-          total_volume: data.volume,
-          status: "TESTING",
-          created_by: user.user_id,
-        },
-      });
-
-      await tx.collection.create({
-        data: {
-          donor_id: donorId,
-          recorded_by: user.user_id,
-          program: data.program,
-          collection_date: data.collection_date,
-          volume: data.volume,
-          remarks: data.remarks || null,
-          is_pasteurized: false,
-          status: "PENDING_LAB_TEST",
-          dtn: data.dtn || null,
-          aob: data.aob || null,
-          collected_by: data.collected_by || null,
-          expiration_date: data.expiration_date ?? null,
-          batch_id: batch.batch_id,
-        },
-      });
-
-      await tx.labResult.create({
-        data: {
-          batch_id: batch.batch_id,
-          stage: "PRE_PASTEURIZATION",
-          test_date: new Date(),
-          result: "PENDING",
-          tested_by: user.user_id,
-        },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          user_id: user.user_id,
-          action_details: `Recorded unpasteurized drop-off (${data.volume} mL) for donor #${donorId}, routed to lab as batch ${batch.batch_code}`,
-        },
-      });
-    });
-  }
-
-  revalidatePath("/dashboard/donors");
-  revalidatePath("/dashboard/laboratory");
-  return { success: true };
 }

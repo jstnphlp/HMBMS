@@ -54,6 +54,38 @@ declare module "lucide-react" {
   export const OctagonXIcon: LucideIcon;
   export const TriangleAlertIcon: LucideIcon;
   export const User: LucideIcon;
+  export const Loader2: LucideIcon;
+  export const Filter: LucideIcon;
+  export const MessageSquare: LucideIcon;
+  export const Phone: LucideIcon;
+  export const LayoutDashboard: LucideIcon;
+  export const FileSpreadsheet: LucideIcon;
+  export const FileText: LucideIcon;
+  export const TrendingDown: LucideIcon;
+  export const Minus: LucideIcon;
+  export const RefreshCw: LucideIcon;
+  export const ArrowDown: LucideIcon;
+  export const ArrowLeft: LucideIcon;
+  export const Edit: LucideIcon;
+  export const History: LucideIcon;
+  export const UserCheck: LucideIcon;
+  export const UserPlus: LucideIcon;
+  export const Timer: LucideIcon;
+  export const Inbox: LucideIcon;
+  export const DollarSign: LucideIcon;
+  export const CalendarCheck: LucideIcon;
+  export const ClipboardList: LucideIcon;
+  export const Syringe: LucideIcon;
+  export const UserSearch: LucideIcon;
+  export const QrCode: LucideIcon;
+  export const AlertCircle: LucideIcon;
+  export const Home: LucideIcon;
+  export const UserX: LucideIcon;
+  export const XCircle: LucideIcon;
+  export const Clock: LucideIcon;
+  export const Beaker: LucideIcon;
+  export const ArrowRight: LucideIcon;
+  export const Layers: LucideIcon;
 
   // Catch-all for any icon not explicitly listed
   const icons: Record<string, LucideIcon>;

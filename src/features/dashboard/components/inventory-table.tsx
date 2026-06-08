@@ -1,89 +1,81 @@
 import { cn } from "@/core/utils/cn";
+import Link from "next/link";
 
-interface InventoryRow {
-  batchId: string;
-  collectionDate: string;
-  donorName: string;
-  program: string;
-  status: { label: string; variant: "raw" | "passed" | "disposed" };
-  volume: number;
-  disposed?: boolean;
+interface InventoryBatch {
+  batch_id: number;
+  batch_code: string;
+  status: string;
+  pooling_date: Date;
+  collections: {
+    program: string;
+    donor: { first_name: string; last_name: string } | null;
+  }[];
+  inventory: { available_vol: number } | null;
 }
 
-const rows: InventoryRow[] = [
-  {
-    batchId: "B-2309-01",
-    collectionDate: "2023-10-24",
-    donorName: "Maria Santos",
-    program: "Supsup Todo",
-    status: { label: "Raw", variant: "raw" },
-    volume: 1200,
-  },
-  {
-    batchId: "B-2309-02",
-    collectionDate: "2023-10-23",
-    donorName: "Anna Reyes",
-    program: "Milky Way",
-    status: { label: "Passed", variant: "passed" },
-    volume: 850,
-  },
-  {
-    batchId: "B-2309-03",
-    collectionDate: "2023-10-22",
-    donorName: "Luzviminda Cruz",
-    program: "Mom's Act",
-    status: { label: "Disposed", variant: "disposed" },
-    volume: 400,
-    disposed: true,
-  },
-  {
-    batchId: "B-2309-04",
-    collectionDate: "2023-10-22",
-    donorName: "Grace Lee",
-    program: "Supsup Todo",
-    status: { label: "Passed", variant: "passed" },
-    volume: 1500,
-  },
-];
+const PROGRAM_LABELS: Record<string, string> = {
+  SUPSUP_TODO: "Supsup Todo",
+  MILKY_WAY: "Milky Way",
+  MOMS_ACT: "Mom's Act",
+};
 
-function StatusBadge({
-  label,
-  variant,
-}: {
-  label: string;
-  variant: "raw" | "passed" | "disposed";
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-block rounded-sm px-2 py-0.5 text-[10px] font-bold",
-        variant === "raw" &&
-          "border border-border bg-accent text-muted-foreground",
-        variant === "passed" &&
-          "bg-primary/10 text-primary",
-        variant === "disposed" &&
-          "bg-destructive/10 text-destructive"
-      )}
-    >
-      {label}
-    </span>
-  );
+const STATUS_CONFIG: Record<
+  string,
+  { label: string; className: string }
+> = {
+  POOLING: {
+    label: "Pooling",
+    className: "bg-muted text-muted-foreground",
+  },
+  TESTING: {
+    label: "Testing",
+    className: "bg-primary/10 text-primary",
+  },
+  PASTEURIZED: {
+    label: "Pasteurized",
+    className: "bg-primary/20 text-primary",
+  },
+  AVAILABLE: {
+    label: "Available",
+    className: "bg-primary/10 text-primary",
+  },
+  DISPENSED: {
+    label: "Dispensed",
+    className: "bg-muted text-muted-foreground",
+  },
+  DISPOSED: {
+    label: "Disposed",
+    className: "bg-destructive/10 text-destructive",
+  },
+};
+
+function formatDate(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(date));
 }
 
-export function InventoryTable() {
+interface InventoryTableProps {
+  batches: InventoryBatch[];
+}
+
+export function InventoryTable({ batches }: InventoryTableProps) {
   return (
     <div className="rounded-none border border-border bg-card">
-      {/* Table header */}
       <div className="flex items-center justify-between border-b border-border bg-muted p-4">
         <h3 className="text-xs leading-4 font-semibold tracking-wider text-foreground uppercase">
           Recent Milk Inventory
         </h3>
-        <button className="text-xs font-medium text-primary hover:underline">
+        <Link
+          href="/dashboard/inventory"
+          className="text-xs font-medium text-primary hover:underline"
+        >
           View All
-        </button>
+        </Link>
       </div>
 
-      {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full text-left">
           <thead>
@@ -97,35 +89,61 @@ export function InventoryTable() {
             </tr>
           </thead>
           <tbody className="text-sm text-foreground">
-            {rows.map((row, i) => (
-              <tr
-                key={row.batchId}
-                className={cn(
-                  "border-b border-border transition-colors hover:bg-muted",
-                  i % 2 === 1 && "bg-card"
-                )}
-              >
-                <td className="px-4 py-2 font-mono text-xs">{row.batchId}</td>
-                <td className="px-4 py-2">{row.collectionDate}</td>
-                <td className="px-4 py-2">{row.donorName}</td>
-                <td className="px-4 py-2">{row.program}</td>
-                <td className="px-4 py-2">
-                  <StatusBadge
-                    label={row.status.label}
-                    variant={row.status.variant}
-                  />
-                </td>
+            {batches.length === 0 && (
+              <tr>
                 <td
-                  className={cn(
-                    "px-4 py-2 text-right font-mono text-sm",
-                    row.disposed &&
-                      "text-muted-foreground line-through"
-                  )}
+                  colSpan={6}
+                  className="py-12 text-center text-muted-foreground text-sm"
                 >
-                  {row.volume.toLocaleString()}
+                  No inventory records yet.
                 </td>
               </tr>
-            ))}
+            )}
+            {batches.map((batch, i) => {
+              const donor = batch.collections[0]?.donor;
+              const donorName = donor
+                ? `${donor.first_name} ${donor.last_name}`.trim()
+                : "—";
+              const program =
+                PROGRAM_LABELS[batch.collections[0]?.program] ?? "—";
+              const statusCfg = STATUS_CONFIG[batch.status] ?? {
+                label: batch.status,
+                className: "bg-muted text-muted-foreground",
+              };
+              const volume = batch.inventory?.available_vol;
+
+              return (
+                <tr
+                  key={batch.batch_id}
+                  className={cn(
+                    "border-b border-border transition-colors hover:bg-muted h-10",
+                    i % 2 === 1 && "bg-muted/40"
+                  )}
+                >
+                  <td className="px-4 py-2 font-mono text-xs">
+                    {batch.batch_code}
+                  </td>
+                  <td className="px-4 py-2">
+                    {formatDate(batch.pooling_date)}
+                  </td>
+                  <td className="px-4 py-2">{donorName}</td>
+                  <td className="px-4 py-2">{program}</td>
+                  <td className="px-4 py-2">
+                    <span
+                      className={cn(
+                        "inline-block rounded-sm px-2 py-0.5 text-[10px] font-bold",
+                        statusCfg.className
+                      )}
+                    >
+                      {statusCfg.label}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono text-sm">
+                    {volume != null ? `${volume.toLocaleString()} mL` : "—"}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

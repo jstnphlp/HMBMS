@@ -8,6 +8,7 @@ import {
   type CreateRecipientInput,
   type UpdateRecipientInput,
 } from "./schemas";
+import { mapPrismaError } from "@/core/utils/prisma-error";
 
 export type ActionResult<T> =
   | { success: true; data: T }
@@ -24,16 +25,38 @@ export async function createRecipient(
 
   const input: CreateRecipientInput = parsed.data;
 
-  const beneficiary = await db.beneficiary.create({
-    data: {
-      name: input.name,
-      contact_no: input.contact_no,
-      remarks: input.remarks ?? null,
-    },
-  });
+  try {
+    const beneficiary = await db.beneficiary.create({
+      data: {
+        name: input.name,
+        contact_no: input.contact_no,
+        remarks: input.remarks ?? null,
+      },
+    });
 
-  revalidatePath("/dashboard/recipients");
-  return { success: true, data: { beneficiary_id: beneficiary.beneficiary_id } };
+    const actingUser = await db.user.findFirst({
+      where: { role: "ADMIN" },
+      select: { user_id: true },
+    });
+
+    if (actingUser) {
+      await db.auditLog.create({
+        data: {
+          user_id: actingUser.user_id,
+          action_details: `Created recipient: ${input.name} (REC-${String(beneficiary.beneficiary_id).padStart(4, "0")})`,
+        },
+      });
+    }
+
+    revalidatePath("/dashboard/recipients");
+    return { success: true, data: { beneficiary_id: beneficiary.beneficiary_id } };
+  } catch (err) {
+    console.error("[createRecipient] error:", err);
+    return {
+      success: false,
+      errors: { _form: [mapPrismaError(err)] },
+    };
+  }
 }
 
 export async function updateRecipient(
@@ -59,17 +82,39 @@ export async function updateRecipient(
     };
   }
 
-  await db.beneficiary.update({
-    where: { beneficiary_id: beneficiaryId },
-    data: {
-      name: input.name,
-      contact_no: input.contact_no,
-      remarks: input.remarks ?? null,
-    },
-  });
+  try {
+    await db.beneficiary.update({
+      where: { beneficiary_id: beneficiaryId },
+      data: {
+        name: input.name,
+        contact_no: input.contact_no,
+        remarks: input.remarks ?? null,
+      },
+    });
 
-  revalidatePath("/dashboard/recipients");
-  return { success: true, data: { beneficiary_id: beneficiaryId } };
+    const actingUser = await db.user.findFirst({
+      where: { role: "ADMIN" },
+      select: { user_id: true },
+    });
+
+    if (actingUser) {
+      await db.auditLog.create({
+        data: {
+          user_id: actingUser.user_id,
+          action_details: `Updated recipient #${beneficiaryId}: ${input.name}`,
+        },
+      });
+    }
+
+    revalidatePath("/dashboard/recipients");
+    return { success: true, data: { beneficiary_id: beneficiaryId } };
+  } catch (err) {
+    console.error("[updateRecipient] error:", err);
+    return {
+      success: false,
+      errors: { _form: [mapPrismaError(err)] },
+    };
+  }
 }
 
 export async function deleteRecipient(
@@ -98,10 +143,32 @@ export async function deleteRecipient(
     };
   }
 
-  await db.beneficiary.delete({
-    where: { beneficiary_id: beneficiaryId },
-  });
+  try {
+    await db.beneficiary.delete({
+      where: { beneficiary_id: beneficiaryId },
+    });
 
-  revalidatePath("/dashboard/recipients");
-  return { success: true, data: { beneficiary_id: beneficiaryId } };
+    const actingUser = await db.user.findFirst({
+      where: { role: "ADMIN" },
+      select: { user_id: true },
+    });
+
+    if (actingUser) {
+      await db.auditLog.create({
+        data: {
+          user_id: actingUser.user_id,
+          action_details: `Deleted recipient #${beneficiaryId} (${existing.name})`,
+        },
+      });
+    }
+
+    revalidatePath("/dashboard/recipients");
+    return { success: true, data: { beneficiary_id: beneficiaryId } };
+  } catch (err) {
+    console.error("[deleteRecipient] error:", err);
+    return {
+      success: false,
+      errors: { _form: [mapPrismaError(err)] },
+    };
+  }
 }

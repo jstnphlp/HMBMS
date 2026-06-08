@@ -1,88 +1,64 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import { cn } from "@/core/utils/cn";
 import { Button } from "@/core/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/core/ui/card";
 import {
   Eye,
-  FileSpreadsheet,
   FileText,
-  Filter,
+  Trash2,
+  Search,
   ChevronLeft,
   ChevronRight,
+  Loader2,
 } from "lucide-react";
+import { deleteReport } from "../actions";
+import { toast } from "sonner";
+import type { ReportWithUser } from "../queries";
 
-interface ReportRow {
-  id: string;
-  dateGenerated: string;
-  type: string;
-  dateRange: string;
-  generatedBy: string;
+interface ReportsTableProps {
+  reports: ReportWithUser[];
 }
 
-const reportData: ReportRow[] = [
-  {
-    id: "RPT-2023-104",
-    dateGenerated: "Oct 24, 2023 14:30",
-    type: "Inventory Levels",
-    dateRange: "Sep 01 - Oct 31",
-    generatedBy: "System Auto",
-  },
-  {
-    id: "RPT-2023-103",
-    dateGenerated: "Oct 23, 2023 09:15",
-    type: "Donor Acquisition",
-    dateRange: "Q3 2023",
-    generatedBy: "Dr. Sarah Jenkins",
-  },
-  {
-    id: "RPT-2023-102",
-    dateGenerated: "Oct 20, 2023 16:45",
-    type: "Lab Testing Yields",
-    dateRange: "Oct 01 - Oct 20",
-    generatedBy: "Mark Tech",
-  },
-  {
-    id: "RPT-2023-101",
-    dateGenerated: "Oct 15, 2023 08:00",
-    type: "Dispensation Logs (NICU)",
-    dateRange: "Sep 01 - Sep 30",
-    generatedBy: "System Auto",
-  },
-];
-
-function ReportActions() {
-  return (
-    <div className="flex justify-end gap-1">
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="text-muted-foreground hover:text-primary"
-        title="View"
-      >
-        <Eye className="h-4 w-4" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="text-muted-foreground hover:text-primary"
-        title="Export CSV"
-      >
-        <FileSpreadsheet className="h-4 w-4" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="text-muted-foreground hover:text-primary"
-        title="Export PDF"
-      >
-        <FileText className="h-4 w-4" />
-      </Button>
-    </div>
-  );
+function formatDateTime(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(date));
 }
 
-export function ReportsTable() {
+function formatDateRange(from: Date, to: Date) {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  return `${fmt.format(new Date(from))} – ${fmt.format(new Date(to))}`;
+}
+
+export function ReportsTable({ reports }: ReportsTableProps) {
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function handleDelete(reportId: number) {
+    if (!confirm("Delete this report? This action cannot be undone.")) return;
+
+    startTransition(async () => {
+      setDeletingId(reportId);
+      const result = await deleteReport(reportId);
+      if (result.success) {
+        toast.success("Report deleted.");
+      } else {
+        toast.error("Failed to delete report.");
+      }
+      setDeletingId(null);
+    });
+  }
+
   return (
     <Card>
       <CardHeader className="border-b border-border bg-card">
@@ -90,14 +66,13 @@ export function ReportsTable() {
           <CardTitle className="text-xs leading-4 font-semibold tracking-wider text-foreground uppercase">
             Generated Report Data
           </CardTitle>
-          <Button variant="outline" size="xs">
-            <Filter className="h-3 w-3" />
+          <Button variant="outline" size="xs" disabled>
+            <Search className="h-3 w-3" />
             Filter
           </Button>
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        {/* Desktop Table */}
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-border bg-card text-xs font-medium tracking-wider text-muted-foreground uppercase">
@@ -111,57 +86,127 @@ export function ReportsTable() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/50">
-              {reportData.map((row, i) => (
+              {reports.map((row, i) => (
                 <tr
-                  key={row.id}
+                  key={row.report_id}
                   className={cn(
                     "h-10 transition-colors hover:bg-muted",
-                    i % 2 === 1 && "bg-card"
+                    i % 2 === 1 && "bg-muted/40"
                   )}
                 >
-                  <td className="px-4 py-2 font-medium text-primary">
-                    {row.id}
+                  <td className="px-4 py-2 font-medium text-primary underline-offset-4 hover:underline cursor-pointer">
+                    {row.report_code}
                   </td>
-                  <td className="px-4 py-2">{row.dateGenerated}</td>
+                  <td className="px-4 py-2">
+                    {formatDateTime(row.generated_at)}
+                  </td>
                   <td className="px-4 py-2">{row.type}</td>
                   <td className="px-4 py-2 text-muted-foreground">
-                    {row.dateRange}
+                    {formatDateRange(row.date_from, row.date_to)}
                   </td>
-                  <td className="px-4 py-2">{row.generatedBy}</td>
+                  <td className="px-4 py-2">{row.user.email}</td>
                   <td className="px-4 py-2">
-                    <ReportActions />
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-muted-foreground hover:text-primary"
+                        title="View"
+                        disabled
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-muted-foreground hover:text-primary"
+                        title="Download"
+                        disabled
+                      >
+                        <FileText className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-muted-foreground hover:text-destructive"
+                        title="Delete"
+                        disabled={isPending && deletingId === row.report_id}
+                        onClick={() => handleDelete(row.report_id)}
+                      >
+                        {isPending && deletingId === row.report_id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
+              {reports.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="py-16 text-center text-muted-foreground text-sm"
+                  >
+                    No reports generated yet. Use the filter bar above to
+                    generate your first report.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
 
-        {/* Mobile Cards */}
         <div className="flex flex-col gap-3 p-4 md:hidden">
-          {reportData.map((row) => (
+          {reports.map((row) => (
             <div
-              key={row.id}
+              key={row.report_id}
               className="rounded border border-border bg-card p-3"
             >
               <div className="mb-2 flex items-center justify-between">
-                <span className="font-medium text-primary">{row.id}</span>
+                <span className="font-medium text-primary">
+                  {row.report_code}
+                </span>
                 <span className="text-xs text-muted-foreground">
-                  {row.dateGenerated}
+                  {formatDateTime(row.generated_at)}
                 </span>
               </div>
               <div className="mb-1 text-sm">{row.type}</div>
               <div className="mb-2 text-xs text-muted-foreground">
-                {row.dateRange} · {row.generatedBy}
+                {formatDateRange(row.date_from, row.date_to)} ·{" "}
+                {row.user.email}
               </div>
-              <ReportActions />
+              <div className="flex gap-1">
+                <Button variant="ghost" size="icon-xs" disabled>
+                  <Eye className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon-xs" disabled>
+                  <FileText className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="hover:text-destructive"
+                  disabled={isPending && deletingId === row.report_id}
+                  onClick={() => handleDelete(row.report_id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           ))}
+          {reports.length === 0 && (
+            <p className="py-12 text-center text-muted-foreground text-sm">
+              No reports generated yet.
+            </p>
+          )}
         </div>
 
-        {/* Pagination */}
         <div className="flex items-center justify-between border-t border-border bg-card p-3 text-xs text-muted-foreground">
-          <span>Showing 1-4 of 24 reports</span>
+          <span>
+            Showing {reports.length} of {reports.length} reports
+          </span>
           <div className="flex gap-1">
             <Button
               variant="outline"
@@ -171,7 +216,7 @@ export function ReportsTable() {
             >
               <ChevronLeft className="h-3 w-3" />
             </Button>
-            <Button variant="outline" size="icon-xs">
+            <Button variant="outline" size="icon-xs" disabled className="opacity-50">
               <ChevronRight className="h-3 w-3" />
             </Button>
           </div>

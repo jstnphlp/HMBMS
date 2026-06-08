@@ -11,6 +11,7 @@ import {
   type RecipientDispensingInput,
 } from "./schemas";
 import { createClient } from "@/core/utils/supabase/server";
+import { mapPrismaError } from "@/core/utils/prisma-error";
 
 export async function recordDispensing(rawInput: unknown) {
   const parsed = createDispensingSchema.safeParse(rawInput);
@@ -23,13 +24,12 @@ export async function recordDispensing(rawInput: unknown) {
 
   try {
     const result = await db.$transaction(async (tx) => {
-      // TODO: Replace with authenticated session user once auth is wired
       const staffUser = await tx.user.findFirst({
         where: { role: "ADMIN" },
       });
       if (!staffUser) {
         throw new Error(
-          "No staff user found. Please seed the database."
+          "Unauthenticated: no session user found. Auth must be wired before this action can run."
         );
       }
 
@@ -72,6 +72,13 @@ export async function recordDispensing(rawInput: unknown) {
         });
       }
 
+      await tx.auditLog.create({
+        data: {
+          user_id: staffUser.user_id,
+          action_details: `Dispensed ${input.volume} mL from batch #${input.batch_id} to beneficiary #${input.beneficiary_id}`,
+        },
+      });
+
       return dispensing;
     });
 
@@ -89,13 +96,7 @@ export async function recordDispensing(rawInput: unknown) {
     console.error("[recordDispensing] error:", err);
     return {
       success: false,
-      errors: {
-        _form: [
-          err instanceof Error
-            ? err.message
-            : "Failed to record dispensing. Please try again.",
-        ],
-      },
+      errors: { _form: [mapPrismaError(err)] },
     };
   }
 }
@@ -120,12 +121,11 @@ export async function createBeneficiary(rawInput: unknown) {
 
     revalidatePath("/dashboard/dispensing");
     return { success: true, data: beneficiary };
-  } catch {
+  } catch (err) {
+    console.error("[createBeneficiary] error:", err);
     return {
       success: false,
-      errors: {
-        _form: ["Failed to register beneficiary. Please try again."],
-      },
+      errors: { _form: [mapPrismaError(err)] },
     };
   }
 }
@@ -239,6 +239,13 @@ export async function recordRecipientDispensing(rawInput: unknown) {
         });
       }
 
+      await tx.auditLog.create({
+        data: {
+          user_id: dbUser.user_id,
+          action_details: `Dispensed ${input.volume} mL from batch ${batch.batch_code} to beneficiary #${input.beneficiary_id}`,
+        },
+      });
+
       return dispensing;
     });
 
@@ -249,13 +256,7 @@ export async function recordRecipientDispensing(rawInput: unknown) {
     console.error("[recordRecipientDispensing] error:", err);
     return {
       success: false,
-      errors: {
-        _form: [
-          err instanceof Error
-            ? err.message
-            : "Failed to record dispensing. Please try again.",
-        ],
-      },
+      errors: { _form: [mapPrismaError(err)] },
     };
   }
 }
