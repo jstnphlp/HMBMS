@@ -23,11 +23,25 @@ export async function recordDispensing(rawInput: unknown) {
 
   try {
     const result = await db.$transaction(async (tx) => {
+      // TODO: Replace with authenticated session user once auth is wired
+      const staffUser = await tx.user.findFirst({
+        where: { role: "ADMIN" },
+      });
+      if (!staffUser) {
+        throw new Error(
+          "No staff user found. Please seed the database."
+        );
+      }
+
       const inventory = await tx.inventory.findUnique({
         where: { batch_id: input.batch_id },
       });
 
-      if (!inventory || inventory.available_vol < input.volume) {
+      if (!inventory) {
+        throw new Error("No inventory record found for this batch.");
+      }
+
+      if (inventory.available_vol < input.volume) {
         throw new Error("INSUFFICIENT_VOLUME");
       }
 
@@ -35,7 +49,7 @@ export async function recordDispensing(rawInput: unknown) {
         data: {
           batch_id: input.batch_id,
           beneficiary_id: input.beneficiary_id,
-          dispensed_by: input.dispensed_by,
+          dispensed_by: staffUser.user_id,
           dispensing_date: input.dispensing_date,
           volume: input.volume,
           price: input.price,
@@ -72,9 +86,16 @@ export async function recordDispensing(rawInput: unknown) {
         },
       };
     }
+    console.error("[recordDispensing] error:", err);
     return {
       success: false,
-      errors: { _form: ["Failed to record dispensing. Please try again."] },
+      errors: {
+        _form: [
+          err instanceof Error
+            ? err.message
+            : "Failed to record dispensing. Please try again.",
+        ],
+      },
     };
   }
 }
@@ -224,10 +245,17 @@ export async function recordRecipientDispensing(rawInput: unknown) {
     revalidatePath("/dashboard/recipients");
     revalidatePath("/dashboard/dispensing");
     return { success: true, data: result };
-  } catch {
+  } catch (err) {
+    console.error("[recordRecipientDispensing] error:", err);
     return {
       success: false,
-      errors: { _form: ["Failed to record dispensing. Please try again."] },
+      errors: {
+        _form: [
+          err instanceof Error
+            ? err.message
+            : "Failed to record dispensing. Please try again.",
+        ],
+      },
     };
   }
 }
