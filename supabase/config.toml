@@ -13,8 +13,8 @@ major_version = 15
 
 [studio]
 enabled = true
-port = 64323
-api_url = "http://localhost"
+port = 54322
+api_url = "http://localhost:64321"
 
 [inbucket]
 enabled = true

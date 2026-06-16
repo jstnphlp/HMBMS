@@ -73,6 +73,8 @@ npm install
 npx prisma migrate dev
 ```
 
+npx prisma db seed
+
 This applies all tracked migrations to your local database and generates the Prisma client. You only need to run this once after cloning, or after pulling changes that include new migrations.
 
 ### 6. Start the Development Server
