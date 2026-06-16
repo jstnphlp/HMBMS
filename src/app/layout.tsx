@@ -17,6 +17,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "HMBMS - Human Milk Bank Management System",
   description: "Management system for Makati Milk Bank operations",
+  icons: {
+    icon: "/mmblogo.png",
+    shortcut: "/mmblogo.png",
+    apple: "/mmblogo.png",
+  },
 };
 
 export default function RootLayout({

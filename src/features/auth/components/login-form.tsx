@@ -11,7 +11,7 @@ import {
   Card,
   CardContent,
 } from "@/core/ui/card";
-import { Mail, Lock, Eye, EyeOff, LogIn, ShieldAlert } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, LogIn } from "lucide-react";
 
 export function LoginForm() {
   const searchParams = useSearchParams();
@@ -67,7 +67,7 @@ export function LoginForm() {
                 type="email"
                 placeholder="staff@makatimilkbank.gov.ph"
                 disabled={pending}
-                className="h-11 bg-muted pl-10"
+                className="h-11 bg-muted pl-10 placeholder:text-muted-foreground/40"
               />
             </div>
             {errors?.email && (
@@ -77,29 +77,21 @@ export function LoginForm() {
 
           {/* Password */}
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <Label
-                htmlFor="password"
-                className="text-xs leading-4 font-medium tracking-wide text-foreground uppercase"
-              >
-                Password
-              </Label>
-              <button
-                type="button"
-                className="text-xs font-bold text-primary transition-colors hover:underline"
-              >
-                Forgot password?
-              </button>
-            </div>
+            <Label
+              htmlFor="password"
+              className="text-xs leading-4 font-medium tracking-wide text-foreground uppercase"
+            >
+              Password
+            </Label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="password"
                 name="password"
                 type={showPassword ? "text" : "password"}
-                placeholder="••••••••"
+                placeholder="Enter your password"
                 disabled={pending}
-                className="h-11 bg-muted pl-10 pr-10"
+                className="h-11 bg-muted pl-10 pr-10 placeholder:text-muted-foreground/40"
               />
               <button
                 type="button"
@@ -113,6 +105,12 @@ export function LoginForm() {
                 )}
               </button>
             </div>
+            <button
+              type="button"
+              className="w-fit text-xs font-bold text-primary transition-colors hover:underline"
+            >
+              Forgot password?
+            </button>
             {errors?.password && (
               <p className="text-sm text-destructive">
                 {errors.password[0]}
@@ -139,22 +137,7 @@ export function LoginForm() {
         </form>
 
         {/* Security notice */}
-        <div className="mt-10 border-t border-border pt-6">
-          <div className="flex items-start gap-3 rounded-lg p-3">
-            <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
-            <div className="text-xs leading-tight text-muted-foreground">
-              <strong className="mb-1 block font-bold text-destructive uppercase">
-                Security Notice:
-              </strong>
-              <p className="font-medium">
-                Authorized access only. This system is for clinical staff and
-                bank administrators. All connection attempts, activities, and
-                data modifications are monitored and logged for regulatory
-                compliance.
-              </p>
-            </div>
-          </div>
-        </div>
+        
       </CardContent>
     </Card>
   );

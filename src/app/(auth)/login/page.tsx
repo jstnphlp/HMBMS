@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Image from "next/image";
 import { LoginForm } from "@/features/auth/components/login-form";
 import {
   Droplets,
@@ -23,12 +24,19 @@ export default function LoginPage() {
           <div className="relative z-10 max-w-xl">
             {/* Logo + brand */}
             <div className="mb-8 flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-white shadow-lg">
-                <Droplets className="h-10 w-10 text-primary" />
+              <div className="relative h-16 w-16 overflow-hidden rounded-lg bg-white shadow-lg">
+                <Image
+                  src="/mmblogo.png"
+                  alt="Makati Milk Bank logo"
+                  fill
+                  sizes="64px"
+                  className="object-contain"
+                  priority
+                />
               </div>
               <div>
                 <h1 className="text-2xl leading-8 font-semibold tracking-tight">
-                  Makati Milk Bank
+                  Makati Human Milk Bank
                 </h1>
                 <p className="text-xs font-bold tracking-widest text-primary-foreground/70 uppercase">
                   Health Management System
@@ -40,7 +48,7 @@ export default function LoginPage() {
             <h2 className="mb-6 text-5xl leading-tight font-extrabold">
               Clinical Staff Portal
               <br />
-              <span className="text-accent">Secure Administrative Access</span>
+              
             </h2>
 
             <p className="mb-12 text-lg leading-relaxed opacity-80">
