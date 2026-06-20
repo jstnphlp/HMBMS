@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/core/ui/tabs";
 import { Badge } from "@/core/ui/badge";
 import { BatchTable } from "./batch-table";
@@ -35,6 +35,8 @@ export function LaboratoryView({
   );
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [visibleBatches, setVisibleBatches] = useState<LabBatchSummary[]>(batches);
+  const [isDetailClosed, setIsDetailClosed] = useState(false);
 
   const filteredBatches = useMemo(() => {
     const allowedStatuses = STATUS_TAB_MAP[activeTab];
@@ -64,15 +66,29 @@ export function LaboratoryView({
     return batches.filter((b) => selectedIds.has(b.batch_id));
   }, [batches, selectedIds]);
 
+  const selectedStillVisible =
+    selectedBatchId !== null &&
+    visibleBatches.some((batch) => batch.batch_id === selectedBatchId);
+  const effectiveSelectedBatchId =
+    visibleBatches.length === 0 || (selectedBatchId === null && isDetailClosed)
+      ? null
+      : selectedStillVisible
+        ? selectedBatchId
+        : visibleBatches[0]?.batch_id ?? null;
+  const displayedBatchDetail =
+    effectiveSelectedBatchId !== null &&
+    batchDetail?.batch_id === effectiveSelectedBatchId
+      ? batchDetail
+      : null;
+
   const handleSelectionChange = useCallback((ids: Set<number>) => {
     setSelectedIds(ids);
   }, []);
 
-  async function handleSelectBatch(batchId: number) {
-    if (batchId === selectedBatchId) return;
-
+  const loadBatchDetail = useCallback(async (batchId: number) => {
     setSelectedBatchId(batchId);
     setIsLoadingDetail(true);
+    setIsDetailClosed(false);
 
     try {
       const { getBatchLabDetail } = await import("../queries");
@@ -83,11 +99,68 @@ export function LaboratoryView({
     } finally {
       setIsLoadingDetail(false);
     }
+  }, []);
+
+  const handleVisibleBatchesChange = useCallback((nextBatches: LabBatchSummary[]) => {
+    setVisibleBatches(nextBatches);
+  }, []);
+
+  useEffect(() => {
+    if (
+      effectiveSelectedBatchId === null ||
+      batchDetail?.batch_id === effectiveSelectedBatchId
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    import("../queries")
+      .then(({ getBatchLabDetail }) => getBatchLabDetail(effectiveSelectedBatchId))
+      .then((detail) => {
+        if (!cancelled) {
+          setBatchDetail(detail);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBatchDetail(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingDetail(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveSelectedBatchId, batchDetail?.batch_id]);
+
+  async function handleSelectBatch(batchId: number) {
+    if (batchId === effectiveSelectedBatchId) return;
+
+    await loadBatchDetail(batchId);
+  }
+
+  async function refreshSelectedBatch() {
+    if (!effectiveSelectedBatchId) return;
+
+    try {
+      const { getBatchLabDetail } = await import("../queries");
+      const detail = await getBatchLabDetail(effectiveSelectedBatchId);
+      setBatchDetail(detail);
+    } catch {
+      setBatchDetail(null);
+    }
   }
 
   function handleCloseDetail() {
     setSelectedBatchId(null);
     setBatchDetail(null);
+    setIsLoadingDetail(false);
+    setIsDetailClosed(true);
   }
 
   function handleClearSelection() {
@@ -108,7 +181,7 @@ export function LaboratoryView({
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="pending" className="text-xs px-3">
-            Pending Tests
+            Ready for Lab
             <Badge className="ml-1 bg-muted text-muted-foreground px-1.5 py-0 text-[10px]">
               {tabCounts.pending}
             </Badge>
@@ -137,12 +210,14 @@ export function LaboratoryView({
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)] gap-4 overflow-hidden">
         <BatchTable
           batches={filteredBatches}
-          selectedBatchId={selectedBatchId}
+          selectedBatchId={effectiveSelectedBatchId}
           onSelectBatch={handleSelectBatch}
           selectedIds={selectedIds}
           onSelectionChange={handleSelectionChange}
+          onFilteredBatchesChange={handleVisibleBatchesChange}
         />
-        {isLoadingDetail ? (
+        {isLoadingDetail ||
+        (effectiveSelectedBatchId !== null && !displayedBatchDetail) ? (
           <div className="bg-background border border-border rounded-lg flex flex-col items-center justify-center p-8">
             <div className="size-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             <p className="text-xs text-muted-foreground mt-3">
@@ -151,11 +226,12 @@ export function LaboratoryView({
           </div>
         ) : (
           <BatchDetailPanel
-            batch={batchDetail}
+            batch={displayedBatchDetail}
             selectedBatchIds={selectedIds}
             selectedBatchSummaries={selectedBatchSummaries}
             onClose={handleCloseDetail}
             onClearSelection={handleClearSelection}
+            onBatchUpdated={refreshSelectedBatch}
           />
         )}
       </div>

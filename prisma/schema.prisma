@@ -55,6 +55,37 @@ enum CollectionStatus {
   READY_FOR_DISPENSING
 }
 
+enum EligibilityResult {
+  PASS
+  FAIL
+}
+
+enum SupsupTodoWorkflowStatus {
+  IN_PROGRESS
+  WAITING_PRE_LAB_RESULT
+  PRE_LAB_FAILED
+  READY_FOR_PASTEURIZATION
+  WAITING_POST_LAB_RESULT
+  POST_LAB_FAILED
+  READY_FOR_STORAGE
+  READY_FOR_DISPENSING
+  DISPOSED
+}
+
+enum SupsupTodoWorkflowStep {
+  LACTATION_EXTRACTION
+  BOTTLING_LABELING
+  COLD_CHAIN
+  PRE_IN_COLLECTION
+  PRE_SENT_TO_LAB
+  PRE_LAB_RESULT
+  PASTEURIZATION
+  POST_SENT_TO_LAB
+  POST_LAB_RESULT
+  COMPLETED
+  DISPOSED
+}
+
 model User {
   user_id    Int      @id @default(autoincrement())
   auth_id    String   @unique
@@ -74,6 +105,9 @@ model User {
   disposals   Disposal[]
   reports     Report[]
   auditLogs   AuditLog[]
+  eligibilityUpdates DonorEligibility[] @relation("EligibilityUpdatedBy")
+  supSupTodoWorkflows SupsupTodoDonationWorkflow[] @relation("SupsupWorkflowCreatedBy")
+  supSupTodoWorkflowUpdates SupsupTodoDonationWorkflow[] @relation("SupsupWorkflowUpdatedBy")
 }
 
 model Donor {
@@ -95,15 +129,19 @@ model Donor {
   delivery_place      String?
   delivery_type       String?
   aog                 String?
+  pregnancy_delivery_details String?
   infant_name         String?
   infant_birthdate    DateTime?
   infant_sex          String?
   infant_birth_weight String?
+  infant_details      String?
   status              DonorStatus @default(ACTIVE)
   registration        DateTime    @default(now())
 
   user        User         @relation(fields: [user_id], references: [user_id])
   collections Collection[]
+  eligibility DonorEligibility?
+  supSupTodoWorkflows SupsupTodoDonationWorkflow[]
 }
 
 model Beneficiary {
@@ -137,6 +175,7 @@ model Collection {
   donor    Donor  @relation(fields: [donor_id], references: [donor_id])
   recorder User   @relation("RecordedBy", fields: [recorded_by], references: [user_id])
   batch    Batch? @relation(fields: [batch_id], references: [batch_id])
+  supSupTodoWorkflow SupsupTodoDonationWorkflow?
 }
 
 model Batch {
@@ -144,6 +183,7 @@ model Batch {
   batch_code   String      @unique
   pooling_date DateTime
   total_volume Float
+  remaining_volume Float  @default(0)
   status       BatchStatus @default(POOLING)
   created_by   Int
   created_at   DateTime    @default(now())
@@ -154,6 +194,80 @@ model Batch {
   inventory   Inventory?
   dispensings Dispensing[]
   disposals   Disposal[]
+  supSupTodoWorkflow SupsupTodoDonationWorkflow?
+}
+
+model DonorEligibility {
+  eligibility_id  Int                @id @default(autoincrement())
+  donor_id        Int                @unique
+  screening_result EligibilityResult?
+  screening_date  DateTime?
+  consent_signed  Boolean            @default(false)
+  consent_date    DateTime?
+  staff_notes     String?
+  updated_by      Int?
+  created_at      DateTime           @default(now())
+  updated_at      DateTime           @updatedAt
+
+  donor   Donor @relation(fields: [donor_id], references: [donor_id])
+  updater User? @relation("EligibilityUpdatedBy", fields: [updated_by], references: [user_id])
+}
+
+model SupsupTodoDonationWorkflow {
+  workflow_id       Int                    @id @default(autoincrement())
+  donor_id          Int
+  ctn               Int?                   @unique
+  batch_id          Int?                   @unique
+  final_status      SupsupTodoWorkflowStatus @default(IN_PROGRESS)
+  current_step      SupsupTodoWorkflowStep @default(LACTATION_EXTRACTION)
+
+  extraction_completed_at DateTime?
+  extracted_volume        Float?
+  extraction_notes         String?
+
+  bottling_completed_at DateTime?
+  bottle_no             String?
+  label_confirmed       Boolean @default(false)
+  bottling_notes         String?
+
+  cold_chain_started_at DateTime?
+  placed_in_cooler      Boolean @default(false)
+  cold_chain_notes       String?
+
+  pre_collection_confirmed Boolean @default(false)
+  pre_sample_volume        Float?
+  pre_in_collection_notes  String?
+  pre_sent_to_lab          Boolean @default(false)
+  pre_sample_sent_at       DateTime?
+  pre_expected_result_date DateTime?
+  pre_sent_notes           String?
+  pre_lab_result           LabTestResult?
+  pre_lab_received_at      DateTime?
+  pre_lab_notes            String?
+
+  pasteurization_completed_at DateTime?
+  pasteurization_confirmed    Boolean @default(false)
+  pasteurization_notes        String?
+
+  post_sample_volume        Float?
+  post_sent_to_lab          Boolean @default(false)
+  post_sample_sent_at       DateTime?
+  post_expected_result_date DateTime?
+  post_sent_notes           String?
+  post_lab_result           LabTestResult?
+  post_lab_received_at      DateTime?
+  post_lab_notes            String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  donor      Donor       @relation(fields: [donor_id], references: [donor_id])
+  collection Collection? @relation(fields: [ctn], references: [ctn])
+  batch      Batch?      @relation(fields: [batch_id], references: [batch_id])
+  creator    User        @relation("SupsupWorkflowCreatedBy", fields: [created_by], references: [user_id])
+  updater    User?       @relation("SupsupWorkflowUpdatedBy", fields: [updated_by], references: [user_id])
 }
 
 model LabResult {

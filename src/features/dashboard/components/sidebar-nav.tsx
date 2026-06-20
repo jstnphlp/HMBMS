@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/core/utils/cn";
 import {
   LayoutDashboard,
@@ -26,8 +26,8 @@ const mainNav: NavItem[] = [
   { label: "Home", href: "/dashboard", icon: LayoutDashboard },
   { label: "Inventory", href: "/dashboard/inventory", icon: Droplets },
   { label: "Donors", href: "/dashboard/donors", icon: Users },
+  { label: "Collections", href: "/dashboard/laboratory", icon: FlaskConical },
   { label: "Recipients", href: "/dashboard/recipients", icon: Baby },
-  { label: "Lab Tests", href: "/dashboard/laboratory", icon: FlaskConical },
   { label: "Distribution", href: "/dashboard/dispensing", icon: Truck },
   { label: "Reporting", href: "/dashboard/analytics", icon: BarChart3 },
   { label: "System Settings", href: "/dashboard/settings", icon: Settings },
@@ -44,10 +44,16 @@ function SidebarLink({
   item: NavItem;
   active: boolean;
 }) {
+  const router = useRouter();
+  const prefetchRoute = () => router.prefetch(item.href);
+
   return (
     <li className="mb-1 px-3">
       <Link
         href={item.href}
+        prefetch={true}
+        onMouseEnter={prefetchRoute}
+        onFocus={prefetchRoute}
         className={cn(
           "flex cursor-pointer items-center gap-3 rounded-none px-3 py-2 transition-all active:opacity-80",
           active

@@ -84,9 +84,10 @@ export function DonorTable({
   });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
   const paginated = filtered.slice(
-    (page - 1) * PAGE_SIZE,
-    page * PAGE_SIZE
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE
   );
 
   function formatDate(date: Date | null) {
@@ -252,8 +253,8 @@ export function DonorTable({
       <div className="p-3 border-t border-border bg-card flex justify-between items-center shrink-0">
         <span className="text-xs text-muted-foreground">
           Showing{" "}
-          {filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–
-          {Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}{" "}
+          {filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1}–
+          {Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length}{" "}
           donors
         </span>
         <div className="flex items-center gap-1">
@@ -261,7 +262,7 @@ export function DonorTable({
             variant="outline"
             size="icon-xs"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
+            disabled={safePage === 1}
             className="border-border"
           >
             <ChevronLeft className="size-3" />
@@ -271,12 +272,12 @@ export function DonorTable({
             return (
               <Button
                 key={pageNum}
-                variant={page === pageNum ? "default" : "outline"}
+                variant={safePage === pageNum ? "default" : "outline"}
                 size="xs"
                 onClick={() => setPage(pageNum)}
                 className={cn(
                   "text-xs min-w-[28px]",
-                  page === pageNum
+                  safePage === pageNum
                     ? "bg-primary text-primary-foreground"
                     : "border-border"
                 )}
@@ -289,7 +290,7 @@ export function DonorTable({
             variant="outline"
             size="icon-xs"
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
+            disabled={safePage === totalPages}
             className="border-border"
           >
             <ChevronRight className="size-3" />

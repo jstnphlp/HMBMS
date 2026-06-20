@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import dynamic from "next/dynamic";
 import { ReportFilters } from "./report-filters";
 import { KpiCards } from "./kpi-cards";
-import { VolumeTrendsChart } from "./volume-trends-chart";
-import { ProgramDistributionChart } from "./program-distribution-chart";
 import { ReportsTable } from "./reports-table";
-import { generateReport } from "../actions";
-import { getAnalyticsSummary, getVolumeTrends, getProgramDistribution } from "../queries";
+import { generateReportAndRefreshAnalytics } from "../actions";
+import { Card, CardContent, CardHeader } from "@/core/ui/card";
+import { Skeleton } from "@/core/ui/skeleton";
 import { toast } from "sonner";
 import type {
   AnalyticsSummary,
@@ -15,6 +15,38 @@ import type {
   ProgramDistSegment,
   ReportWithUser,
 } from "../queries";
+
+const VolumeTrendsChart = dynamic(
+  () => import("./volume-trends-chart").then((mod) => mod.VolumeTrendsChart),
+  {
+    ssr: false,
+    loading: () => <ChartLoadingSkeleton className="col-span-12 lg:col-span-8" />,
+  }
+);
+
+const ProgramDistributionChart = dynamic(
+  () =>
+    import("./program-distribution-chart").then(
+      (mod) => mod.ProgramDistributionChart
+    ),
+  {
+    ssr: false,
+    loading: () => <ChartLoadingSkeleton className="col-span-12 lg:col-span-4" />,
+  }
+);
+
+function ChartLoadingSkeleton({ className }: { className: string }) {
+  return (
+    <Card className={className}>
+      <CardHeader className="border-b border-border bg-card">
+        <Skeleton className="h-4 w-40" />
+      </CardHeader>
+      <CardContent className="p-4">
+        <Skeleton className="h-[300px] w-full" />
+      </CardContent>
+    </Card>
+  );
+}
 
 interface AnalyticsViewProps {
   initialSummary: AnalyticsSummary;
@@ -54,40 +86,32 @@ export function AnalyticsView({
       const from = new Date(dateFrom);
       const to = new Date(dateTo);
 
-      const [reportResult, newSummary, newTrends, newDist] = await Promise.all([
-        generateReport({
-          type: reportType as
-            | "Inventory Levels"
-            | "Donor Acquisition"
-            | "Lab Testing Yields"
-            | "Dispensation Logs",
-          program: program as "ALL" | "SUPSUP_TODO" | "MILKY_WAY" | "MOMS_ACT",
-          date_from: from,
-          date_to: to,
-        }),
-        getAnalyticsSummary(from, to, program),
-        getVolumeTrends(from, to, program),
-        getProgramDistribution(from, to),
-      ]);
+      const result = await generateReportAndRefreshAnalytics({
+        type: reportType as
+          | "Inventory Levels"
+          | "Donor Acquisition"
+          | "Lab Testing Yields"
+          | "Dispensation Logs",
+        program: program as "ALL" | "SUPSUP_TODO" | "MILKY_WAY" | "MOMS_ACT",
+        date_from: from,
+        date_to: to,
+      });
 
-      if (reportResult.success) {
+      if (result.success) {
         toast.success("Report generated successfully.");
       } else {
-        const errors = reportResult.errors as Record<string, string[]>;
+        const errors = result.errors as Record<string, string[]>;
         const firstError = errors
           ? Object.values(errors).flat()[0]
           : "Failed to generate report";
         toast.error(firstError ?? "Failed to generate report");
+        return;
       }
 
-      setSummary(newSummary);
-      setVolumeTrends(newTrends);
-      setProgramDist(newDist);
-
-      // Re-fetch reports
-      const { getReports } = await import("../queries");
-      const freshReports = await getReports();
-      setReports(freshReports);
+      setSummary(result.summary);
+      setVolumeTrends(result.volumeTrends);
+      setProgramDist(result.programDist);
+      setReports(result.reports);
     });
   }
 

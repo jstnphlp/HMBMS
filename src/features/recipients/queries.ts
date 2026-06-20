@@ -47,29 +47,75 @@ export interface RecipientMetrics {
 
 export async function getRecipientsWithStats(): Promise<RecipientWithStats[]> {
   const beneficiaries = await db.beneficiary.findMany({
-    take: 100,
-    include: {
-      dispensings: {
-        orderBy: { dispensing_date: "desc" },
-      },
-      sms: true,
+    take: 25,
+    select: {
+      beneficiary_id: true,
+      name: true,
+      contact_no: true,
+      remarks: true,
     },
     orderBy: { beneficiary_id: "desc" },
   });
 
+  const beneficiaryIds = beneficiaries.map((b) => b.beneficiary_id);
+
+  const [dispensingStats, latestDispensings, smsStats] = beneficiaryIds.length
+    ? await Promise.all([
+        db.dispensing.groupBy({
+          by: ["beneficiary_id"],
+          where: { beneficiary_id: { in: beneficiaryIds } },
+          _sum: { volume: true },
+          _count: true,
+        }),
+        db.dispensing.findMany({
+          where: { beneficiary_id: { in: beneficiaryIds } },
+          select: { beneficiary_id: true, dispensing_date: true },
+          orderBy: { dispensing_date: "desc" },
+        }),
+        db.sMS.groupBy({
+          by: ["beneficiary_id"],
+          where: { beneficiary_id: { in: beneficiaryIds } },
+          _count: true,
+        }),
+      ])
+    : [[], [], []];
+
+  const statsByRecipient = new Map(
+    dispensingStats.map((stat) => [
+      stat.beneficiary_id,
+      {
+        total_volume: stat._sum.volume ?? 0,
+        dispensing_count: stat._count,
+      },
+    ])
+  );
+  const latestByRecipient = new Map<
+    number,
+    (typeof latestDispensings)[number]
+  >();
+  const smsCountByRecipient = new Map(
+    smsStats.map((stat) => [stat.beneficiary_id, stat._count])
+  );
+
+  for (const dispensing of latestDispensings) {
+    if (!latestByRecipient.has(dispensing.beneficiary_id)) {
+      latestByRecipient.set(dispensing.beneficiary_id, dispensing);
+    }
+  }
+
   return beneficiaries.map((b) => {
-    const totalVolume = b.dispensings.reduce((sum, d) => sum + d.volume, 0);
-    const lastDispensing = b.dispensings[0] ?? null;
+    const stats = statsByRecipient.get(b.beneficiary_id);
+    const lastDispensing = latestByRecipient.get(b.beneficiary_id) ?? null;
 
     return {
       beneficiary_id: b.beneficiary_id,
       name: b.name,
       contact_no: b.contact_no,
       remarks: b.remarks,
-      total_volume: totalVolume,
-      dispensing_count: b.dispensings.length,
+      total_volume: stats?.total_volume ?? 0,
+      dispensing_count: stats?.dispensing_count ?? 0,
       last_dispensing_date: lastDispensing?.dispensing_date ?? null,
-      sms_count: b.sms.length,
+      sms_count: smsCountByRecipient.get(b.beneficiary_id) ?? 0,
     };
   });
 }

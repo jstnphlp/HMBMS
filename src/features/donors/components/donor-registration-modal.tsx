@@ -11,6 +11,7 @@ import {
 } from "@/core/ui/dialog";
 import { Input } from "@/core/ui/input";
 import { Label } from "@/core/ui/label";
+import { Textarea } from "@/core/ui/textarea";
 import { Button } from "@/core/ui/button";
 import {
   Select,
@@ -56,7 +57,7 @@ export function DonorRegistrationModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-background border-border">
+      <DialogContent className="w-[95vw] sm:max-w-6xl max-h-[90vh] overflow-hidden bg-background border-border flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-foreground text-lg">
             Donor Registration Form
@@ -67,10 +68,11 @@ export function DonorRegistrationModal({
           </DialogDescription>
         </DialogHeader>
 
-        <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
-          {/* Personal Information */}
-          <SectionHeader title="Personal Information" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+        <form ref={formRef} onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="max-h-[calc(90vh-9rem)] overflow-y-auto pr-1 space-y-6">
+            {/* Personal Information */}
+            <SectionHeader title="Personal Information" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <Field
               label="First Name"
               name="first_name"
@@ -86,7 +88,7 @@ export function DonorRegistrationModal({
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <Field
               label="Date of Birth"
               name="birthdate"
@@ -113,7 +115,7 @@ export function DonorRegistrationModal({
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
             <Field
               label="Address"
               name="address"
@@ -130,11 +132,11 @@ export function DonorRegistrationModal({
             </div>
           </div>
 
-          <Separator className="bg-border" />
+            <Separator className="bg-border" />
 
-          {/* Spouse Information */}
-          <SectionHeader title="Spouse Information" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            {/* Spouse Information */}
+            <SectionHeader title="Spouse Information" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <Field
               label="Name of Spouse"
               name="spouse_name"
@@ -152,14 +154,12 @@ export function DonorRegistrationModal({
             />
           </div>
 
-          <Separator className="bg-border" />
+            <Separator className="bg-border" />
 
-          {/* Delivery Information */}
-          <SectionHeader title="Pregnancy / Delivery Information" />
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-            <div className="lg:col-span-2">
-              <Field label="Date of Delivery" name="delivery_date" type="date" />
-            </div>
+            {/* Delivery Information */}
+            <SectionHeader title="Pregnancy / Delivery Information" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <Field label="Date of Delivery" name="delivery_date" type="date" />
             <Field
               label="Place of Delivery"
               name="delivery_place"
@@ -175,19 +175,26 @@ export function DonorRegistrationModal({
               ]}
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <Field
               label="AOG (Age of Gestation)"
               name="aog"
               placeholder="e.g. 37 weeks"
             />
           </div>
+            <div className="grid grid-cols-1">
+              <TextAreaField
+                label="Additional Pregnancy / Delivery Details"
+                name="pregnancy_delivery_details"
+                placeholder="Additional pregnancy or delivery notes"
+              />
+          </div>
 
-          <Separator className="bg-border" />
+            <Separator className="bg-border" />
 
-          {/* Infant Information */}
-          <SectionHeader title="Infant Information" />
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+            {/* Infant Information */}
+            <SectionHeader title="Infant Information" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
             <Field
               label="Infant's Name"
               name="infant_name"
@@ -212,9 +219,17 @@ export function DonorRegistrationModal({
               placeholder="e.g. 3.2 kg"
             />
           </div>
+            <div className="grid grid-cols-1">
+              <TextAreaField
+                label="Additional Infant Details"
+                name="infant_details"
+                placeholder="Additional infant notes"
+              />
+          </div>
+          </div>
 
           {/* Submit */}
-          <div className="flex justify-end gap-3 pt-2">
+          <div className="flex justify-end gap-3 border-t border-border bg-background pt-4 mt-4">
             <Button
               type="button"
               variant="outline"
@@ -239,6 +254,30 @@ export function DonorRegistrationModal({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function TextAreaField({
+  label,
+  name,
+  placeholder,
+}: {
+  label: string;
+  name: string;
+  placeholder?: string;
+}) {
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={name} className="text-foreground">
+        {label}
+      </Label>
+      <Textarea
+        id={name}
+        name={name}
+        placeholder={placeholder}
+        className="min-h-20 bg-card border-border text-foreground"
+      />
+    </div>
   );
 }
 

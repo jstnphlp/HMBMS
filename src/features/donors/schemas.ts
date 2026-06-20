@@ -40,11 +40,13 @@ export const registerDonorSchema = z.object({
   delivery_place: z.string().max(300).optional().or(z.literal("")),
   delivery_type: z.string().max(100).optional().or(z.literal("")),
   aog: z.string().max(50).optional().or(z.literal("")),
+  pregnancy_delivery_details: z.string().max(1000).optional().or(z.literal("")),
 
   infant_name: z.string().max(200).optional().or(z.literal("")),
   infant_birthdate: optionalDate,
   infant_sex: z.string().max(20).optional().or(z.literal("")),
   infant_birth_weight: z.string().max(50).optional().or(z.literal("")),
+  infant_details: z.string().max(1000).optional().or(z.literal("")),
 });
 
 export type RegisterDonorInput = z.infer<typeof registerDonorSchema>;
@@ -75,6 +77,16 @@ export const updateDonorSchema = z.object({
     .regex(/^(\+63|0)[0-9]{10}$/, "Invalid Philippine phone number")
     .optional()
     .or(z.literal("")),
+  delivery_date: optionalDate,
+  delivery_place: z.string().max(300).optional().or(z.literal("")),
+  delivery_type: z.string().max(100).optional().or(z.literal("")),
+  aog: z.string().max(50).optional().or(z.literal("")),
+  pregnancy_delivery_details: z.string().max(1000).optional().or(z.literal("")),
+  infant_name: z.string().max(200).optional().or(z.literal("")),
+  infant_birthdate: optionalDate,
+  infant_sex: z.string().max(20).optional().or(z.literal("")),
+  infant_birth_weight: z.string().max(50).optional().or(z.literal("")),
+  infant_details: z.string().max(1000).optional().or(z.literal("")),
   status: z.enum(["ACTIVE", "INACTIVE"]),
 });
 

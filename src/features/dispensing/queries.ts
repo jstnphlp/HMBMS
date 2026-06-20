@@ -42,10 +42,9 @@ export async function getDispensingMetrics(): Promise<DispensingMetrics> {
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  const [volumeAgg, dispensings, beneficiaryCount, todayCount] =
+  const [volumeAgg, beneficiaryCount, todayCount] =
     await Promise.all([
       db.dispensing.aggregate({ _sum: { volume: true, total: true } }),
-      db.dispensing.count(),
       db.beneficiary.count(),
       db.dispensing.count({
         where: { dispensing_date: { gte: startOfDay } },
@@ -62,32 +61,69 @@ export async function getDispensingMetrics(): Promise<DispensingMetrics> {
 
 export async function getBeneficiaries(): Promise<BeneficiaryEntry[]> {
   const beneficiaries = await db.beneficiary.findMany({
-    take: 100,
-    include: {
-      dispensings: {
-        orderBy: { dispensing_date: "desc" },
-      },
+    take: 25,
+    select: {
+      beneficiary_id: true,
+      contact_no: true,
+      remarks: true,
     },
     orderBy: { beneficiary_id: "desc" },
   });
 
+  const beneficiaryIds = beneficiaries.map((b) => b.beneficiary_id);
+  const [dispensingStats, latestDispensings] = beneficiaryIds.length
+    ? await Promise.all([
+        db.dispensing.groupBy({
+          by: ["beneficiary_id"],
+          where: { beneficiary_id: { in: beneficiaryIds } },
+          _sum: { volume: true },
+          _count: true,
+        }),
+        db.dispensing.findMany({
+          where: { beneficiary_id: { in: beneficiaryIds } },
+          select: { beneficiary_id: true, dispensing_date: true },
+          orderBy: { dispensing_date: "desc" },
+        }),
+      ])
+    : [[], []];
+
+  const statsByRecipient = new Map(
+    dispensingStats.map((stat) => [
+      stat.beneficiary_id,
+      {
+        totalVolume: stat._sum.volume ?? 0,
+        dispensingCount: stat._count,
+      },
+    ])
+  );
+  const latestByRecipient = new Map<
+    number,
+    (typeof latestDispensings)[number]
+  >();
+
+  for (const dispensing of latestDispensings) {
+    if (!latestByRecipient.has(dispensing.beneficiary_id)) {
+      latestByRecipient.set(dispensing.beneficiary_id, dispensing);
+    }
+  }
+
   return beneficiaries.map((b) => {
-    const totalVolume = b.dispensings.reduce((sum, d) => sum + d.volume, 0);
-    const lastDispensing = b.dispensings[0] ?? null;
+    const stats = statsByRecipient.get(b.beneficiary_id);
+    const lastDispensing = latestByRecipient.get(b.beneficiary_id) ?? null;
 
     return {
       beneficiary_id: b.beneficiary_id,
       contact_no: b.contact_no,
       remarks: b.remarks,
       lastDispensingDate: lastDispensing?.dispensing_date.toISOString() ?? null,
-      totalVolume,
-      dispensingCount: b.dispensings.length,
+      totalVolume: stats?.totalVolume ?? 0,
+      dispensingCount: stats?.dispensingCount ?? 0,
     };
   });
 }
 
 export async function getDispensingLogs(
-  limit = 50
+  limit = 25
 ): Promise<DispensingLogEntry[]> {
   const dispensings = await db.dispensing.findMany({
     take: limit,
@@ -122,6 +158,7 @@ export async function getAvailableBatches(): Promise<AvailableBatch[]> {
     include: {
       inventory: { select: { available_vol: true } },
     },
+    take: 50,
     orderBy: { created_at: "desc" },
   });
 

@@ -18,9 +18,13 @@ import { LabResultBadge } from "./lab-result-badge";
 import { cn } from "@/core/utils/cn";
 import {
   recordLabResult,
-  updateBatchLabResults,
   bulkUpdateBatchStatus,
 } from "../actions";
+import {
+  SampleTracker,
+  StepActionDialog,
+  type StepTarget,
+} from "@/features/supsup-todo/components/supsup-todo-details-modal";
 import { toast } from "sonner";
 import {
   FlaskConical,
@@ -30,7 +34,6 @@ import {
   User,
   Beaker,
   Loader2,
-  ArrowRight,
   Layers,
 } from "lucide-react";
 import type { LabBatchDetail, LabBatchSummary } from "../queries";
@@ -41,23 +44,8 @@ interface BatchDetailPanelProps {
   selectedBatchSummaries: LabBatchSummary[];
   onClose: () => void;
   onClearSelection: () => void;
+  onBatchUpdated: () => Promise<void> | void;
 }
-
-const STATUS_TRANSITIONS: Record<
-  string,
-  { value: string; label: string }[]
-> = {
-  POOLING: [{ value: "TESTING", label: "Move to Testing" }],
-  TESTING: [
-    { value: "PASTEURIZED", label: "Mark Pasteurized" },
-    { value: "DISPOSED", label: "Dispose (Failed)" },
-  ],
-  PASTEURIZED: [
-    { value: "AVAILABLE", label: "Mark Available" },
-    { value: "DISPOSED", label: "Dispose (Failed)" },
-  ],
-  AVAILABLE: [{ value: "DISPOSED", label: "Dispose" }],
-};
 
 const BULK_STATUS_OPTIONS = [
   { value: "TESTING", label: "Testing" },
@@ -72,6 +60,7 @@ export function BatchDetailPanel({
   selectedBatchSummaries,
   onClose,
   onClearSelection,
+  onBatchUpdated,
 }: BatchDetailPanelProps) {
   if (selectedBatchIds.size > 1) {
     return (
@@ -83,11 +72,12 @@ export function BatchDetailPanel({
   }
 
   return (
-    <SingleBatchPanel
-      key={batch?.batch_id}
-      batch={batch}
-      onClose={onClose}
-    />
+      <SingleBatchPanel
+        key={batch?.batch_id}
+        batch={batch}
+        onClose={onClose}
+        onBatchUpdated={onBatchUpdated}
+      />
   );
 }
 
@@ -156,7 +146,7 @@ function BulkEditPanel({
   }
 
   const totalVolume = selectedBatchSummaries.reduce(
-    (sum, b) => sum + b.total_volume,
+    (sum, b) => sum + b.remaining_volume,
     0
   );
 
@@ -229,7 +219,7 @@ function BulkEditPanel({
                   <BatchStatusBadge status={b.status} />
                 </div>
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {b.total_volume.toLocaleString()} mL
+                  {b.remaining_volume.toLocaleString()} mL
                 </span>
               </div>
             ))}
@@ -364,23 +354,19 @@ function BulkEditPanel({
 function SingleBatchPanel({
   batch,
   onClose,
+  onBatchUpdated,
 }: {
   batch: LabBatchDetail | null;
   onClose: () => void;
+  onBatchUpdated: () => Promise<void> | void;
 }) {
   const [activeStage, setActiveStage] = useState<
     "PRE_PASTEURIZATION" | "POST_PASTEURIZATION"
   >("PRE_PASTEURIZATION");
   const [remarks, setRemarks] = useState("");
   const [colonyCount, setColonyCount] = useState("");
-  const transitions = batch
-    ? STATUS_TRANSITIONS[batch.status] ?? []
-    : [];
-  const [targetStatus, setTargetStatus] = useState<string>(
-    transitions[0]?.value ?? ""
-  );
+  const [stepTarget, setStepTarget] = useState<StepTarget | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSavingResults, setIsSavingResults] = useState(false);
 
   if (!batch) {
     return (
@@ -433,41 +419,6 @@ function SingleBatchPanel({
     }
 
     setIsSubmitting(false);
-  }
-
-  async function handleSaveLabResults() {
-    if (!targetStatus) {
-      toast.error("Select a target status before saving.");
-      return;
-    }
-
-    setIsSavingResults(true);
-
-    const response = await updateBatchLabResults({
-      batch_id: batch!.batch_id,
-      stage: activeStage,
-      colony_count: colonyCount ? Number(colonyCount) : undefined,
-      remarks: remarks.trim() || undefined,
-      status: targetStatus as
-        | "TESTING"
-        | "PASTEURIZED"
-        | "AVAILABLE"
-        | "DISPOSED",
-    });
-
-    if (response.success) {
-      toast.success("Lab results saved and batch status updated.");
-      setRemarks("");
-      setColonyCount("");
-    } else {
-      const errors = response.errors;
-      const firstError = errors
-        ? Object.values(errors).flat()[0]
-        : "An error occurred";
-      toast.error(firstError ?? "Failed to save results");
-    }
-
-    setIsSavingResults(false);
   }
 
   function formatDate(date: Date) {
@@ -529,11 +480,11 @@ function SingleBatchPanel({
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-muted/50 p-2.5 rounded-md border border-border/50">
               <label className="block text-[10px] text-muted-foreground mb-1 uppercase tracking-wider">
-                Total Volume
+                Remaining Volume
               </label>
               <div className="flex items-end gap-1">
                 <span className="text-lg font-semibold text-foreground leading-none">
-                  {batch.total_volume.toLocaleString()}
+                  {batch.remaining_volume.toLocaleString()}
                 </span>
                 <span className="text-xs text-muted-foreground">mL</span>
               </div>
@@ -640,125 +591,97 @@ function SingleBatchPanel({
 
         <Separator className="bg-border/50" />
 
-        {/* Microbiological Result Input Form */}
-        <section>
-          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
-            Microbiological Results
-          </h4>
+        {!batch.supSupTodoWorkflow && (
+          <>
+            <Separator className="bg-border/50" />
 
-          <div className="space-y-3">
-            <div>
-              <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Total Colony Count (CFU/mL)
-              </Label>
-              <Input
-                type="number"
-                min={0}
-                value={colonyCount}
-                onChange={(e) => setColonyCount(e.target.value)}
-                placeholder="e.g. 15000"
-                className="mt-1.5 h-8 text-xs bg-background border-border"
-              />
-            </div>
+            {/* Microbiological Result Input Form */}
+            <section>
+              <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
+                Microbiological Results
+              </h4>
 
-            <div>
-              <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Remarks / Notes
-              </Label>
-              <Textarea
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                placeholder="Observations, anomalies, or additional notes..."
-                className="mt-1.5 min-h-[60px] text-xs bg-background border-border resize-none"
-                maxLength={500}
-              />
-              <p className="text-[10px] text-muted-foreground mt-1 text-right">
-                {remarks.length}/500
-              </p>
-            </div>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    Total Colony Count (CFU/mL)
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={colonyCount}
+                    onChange={(e) => setColonyCount(e.target.value)}
+                    placeholder="e.g. 15000"
+                    className="mt-1.5 h-8 text-xs bg-background border-border"
+                  />
+                </div>
 
-            <div className="flex gap-2">
-              <Button
-                onClick={() => handleRecordResult("PASS")}
-                disabled={isSubmitting}
-                className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-medium"
-              >
-                {isSubmitting ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <CheckCircle className="size-3.5" />
-                )}
-                Pass
-              </Button>
-              <Button
-                onClick={() => handleRecordResult("FAIL")}
-                disabled={isSubmitting}
-                variant="destructive"
-                className="flex-1 text-xs font-medium"
-              >
-                {isSubmitting ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <XCircle className="size-3.5" />
-                )}
-                Fail
-              </Button>
-            </div>
-          </div>
-        </section>
+                <div>
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    Remarks / Notes
+                  </Label>
+                  <Textarea
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    placeholder="Observations, anomalies, or additional notes..."
+                    className="mt-1.5 min-h-[60px] text-xs bg-background border-border resize-none"
+                    maxLength={500}
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1 text-right">
+                    {remarks.length}/500
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => handleRecordResult("PASS")}
+                    disabled={isSubmitting}
+                    className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-medium"
+                  >
+                    {isSubmitting ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle className="size-3.5" />
+                    )}
+                    Pass
+                  </Button>
+                  <Button
+                    onClick={() => handleRecordResult("FAIL")}
+                    disabled={isSubmitting}
+                    variant="destructive"
+                    className="flex-1 text-xs font-medium"
+                  >
+                    {isSubmitting ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <XCircle className="size-3.5" />
+                    )}
+                    Fail
+                  </Button>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
 
         <Separator className="bg-border/50" />
 
-        {/* Status Transition */}
+        {/* Supsup Todo Workflow */}
         <section>
           <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
-            Status Transition
+            Sample Workflow
           </h4>
 
-          {transitions.length > 0 ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <BatchStatusBadge status={batch.status} />
-                <ArrowRight className="size-3.5" />
-                <span className="font-medium text-foreground">Next</span>
-              </div>
-
-              <div>
-                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Target Status
-                </Label>
-                <Select
-                  value={targetStatus}
-                  onValueChange={setTargetStatus}
-                >
-                  <SelectTrigger className="mt-1.5 h-8 text-xs bg-background border-border w-full">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {transitions.map((t) => (
-                      <SelectItem key={t.value} value={t.value}>
-                        {t.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Button
-                onClick={handleSaveLabResults}
-                disabled={isSavingResults || !targetStatus}
-                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-medium"
-              >
-                {isSavingResults ? (
-                  <Loader2 className="size-3.5 animate-spin mr-1.5" />
-                ) : null}
-                Save Results &amp; Update Status
-              </Button>
-            </div>
+          {batch.supSupTodoWorkflow ? (
+            <SampleTracker
+              workflow={batch.supSupTodoWorkflow}
+              compact
+              onSelectStep={setStepTarget}
+            />
           ) : (
             <div className="bg-muted/30 p-3 rounded-md border border-dashed border-border text-center">
               <p className="text-xs text-muted-foreground">
-                No status transitions available for current status.
+                No Supsup Todo workflow is linked to this collection.
               </p>
             </div>
           )}
@@ -811,6 +734,17 @@ function SingleBatchPanel({
           Close
         </Button>
       </div>
+
+      <StepActionDialog
+        donorId={batch.supSupTodoWorkflow?.donor_id ?? 0}
+        target={stepTarget}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setStepTarget(null);
+        }}
+        onUpdated={onBatchUpdated}
+        workflow={batch.supSupTodoWorkflow}
+        eligibility={null}
+      />
     </div>
   );
 }

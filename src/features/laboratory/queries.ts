@@ -1,14 +1,17 @@
 "use server";
 
 import { db } from "@/core/db";
+import type { SupsupTodoWorkflowDetail } from "@/features/supsup-todo/queries";
 
 export interface LabBatchSummary {
   batch_id: number;
   batch_code: string;
   pooling_date: Date;
   total_volume: number;
+  remaining_volume: number;
   status: string;
   program: string | null;
+  donor_name: string;
   collection_count: number;
   pre_pasteurization: {
     result: string;
@@ -20,6 +23,7 @@ export interface LabBatchSummary {
     test_date: Date | null;
     remarks: string | null;
   } | null;
+  supSupTodoWorkflow: SupsupTodoWorkflowDetail | null;
 }
 
 export interface LabBatchDetail {
@@ -27,6 +31,7 @@ export interface LabBatchDetail {
   batch_code: string;
   pooling_date: Date;
   total_volume: number;
+  remaining_volume: number;
   status: string;
   created_at: Date;
   creator_name: string;
@@ -46,6 +51,22 @@ export interface LabBatchDetail {
     remarks: string | null;
     tester_name: string;
   }[];
+  supSupTodoWorkflow: SupsupTodoWorkflowDetail | null;
+}
+
+async function withWorkflowSampleNo(
+  workflow: Omit<SupsupTodoWorkflowDetail, "sample_no"> | null
+): Promise<SupsupTodoWorkflowDetail | null> {
+  if (!workflow) return null;
+
+  const sampleNo = await db.supsupTodoDonationWorkflow.count({
+    where: {
+      donor_id: workflow.donor_id,
+      created_at: { lte: workflow.created_at },
+    },
+  });
+
+  return { ...workflow, sample_no: sampleNo };
 }
 
 export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
@@ -55,13 +76,34 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
         in: ["TESTING", "PASTEURIZED", "POOLING", "AVAILABLE", "DISPOSED"],
       },
     },
-    take: 100,
+    take: 25,
     include: {
+      supSupTodoWorkflow: {
+        include: {
+          collection: {
+            select: {
+              ctn: true,
+              volume: true,
+              program: true,
+              collection_date: true,
+              batch: { select: { batch_code: true, status: true } },
+            },
+          },
+          batch: { select: { batch_code: true, status: true } },
+        },
+      },
       labResults: {
         orderBy: { test_date: "desc" },
+        select: {
+          stage: true,
+          result: true,
+          test_date: true,
+          remarks: true,
+        },
       },
       collections: {
-        include: {
+        select: {
+          program: true,
           donor: { select: { first_name: true, last_name: true } },
         },
       },
@@ -69,7 +111,7 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
     orderBy: { created_at: "desc" },
   });
 
-  return batches.map((batch) => {
+  const mapped = await Promise.all(batches.map(async (batch) => {
     const prePast = batch.labResults.find(
       (lr) => lr.stage === "PRE_PASTEURIZATION"
     );
@@ -78,14 +120,28 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
     );
 
     const program = batch.collections[0]?.program ?? null;
+    const donorNames = Array.from(
+      new Set(
+        batch.collections.map((collection) =>
+          `${collection.donor.first_name} ${collection.donor.last_name}`
+        )
+      )
+    );
 
     return {
       batch_id: batch.batch_id,
       batch_code: batch.batch_code,
       pooling_date: batch.pooling_date,
       total_volume: batch.total_volume,
+      remaining_volume: batch.remaining_volume,
       status: batch.status,
       program,
+      donor_name:
+        donorNames.length === 0
+          ? "--"
+          : donorNames.length === 1
+            ? donorNames[0]
+            : "Multiple donors",
       collection_count: batch.collections.length,
       pre_pasteurization: prePast
         ? {
@@ -101,7 +157,13 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
             remarks: postPast.remarks,
           }
         : null,
+      supSupTodoWorkflow: await withWorkflowSampleNo(batch.supSupTodoWorkflow),
     };
+  }));
+
+  return mapped.filter((batch) => {
+    if (!batch.supSupTodoWorkflow) return true;
+    return !!batch.supSupTodoWorkflow.cold_chain_started_at;
   });
 }
 
@@ -111,6 +173,20 @@ export async function getBatchLabDetail(
   const batch = await db.batch.findUnique({
     where: { batch_id: batchId },
     include: {
+      supSupTodoWorkflow: {
+        include: {
+          collection: {
+            select: {
+              ctn: true,
+              volume: true,
+              program: true,
+              collection_date: true,
+              batch: { select: { batch_code: true, status: true } },
+            },
+          },
+          batch: { select: { batch_code: true, status: true } },
+        },
+      },
       creator: { select: { email: true } },
       labResults: {
         include: {
@@ -134,6 +210,7 @@ export async function getBatchLabDetail(
     batch_code: batch.batch_code,
     pooling_date: batch.pooling_date,
     total_volume: batch.total_volume,
+    remaining_volume: batch.remaining_volume,
     status: batch.status,
     created_at: batch.created_at,
     creator_name: batch.creator.email,
@@ -153,5 +230,6 @@ export async function getBatchLabDetail(
       remarks: lr.remarks,
       tester_name: lr.tester.email,
     })),
+    supSupTodoWorkflow: await withWorkflowSampleNo(batch.supSupTodoWorkflow),
   };
 }

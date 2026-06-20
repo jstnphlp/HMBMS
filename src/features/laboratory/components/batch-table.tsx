@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -20,8 +20,6 @@ import {
   SelectValue,
 } from "@/core/ui/select";
 import { Badge } from "@/core/ui/badge";
-import { LabResultBadge } from "./lab-result-badge";
-import { BatchStatusBadge } from "./batch-status-badge";
 import { cn } from "@/core/utils/cn";
 import { Search, Filter, ChevronLeft, ChevronRight } from "lucide-react";
 import type { LabBatchSummary } from "../queries";
@@ -32,6 +30,7 @@ interface BatchTableProps {
   onSelectBatch: (batchId: number) => void;
   selectedIds: Set<number>;
   onSelectionChange: (ids: Set<number>) => void;
+  onFilteredBatchesChange?: (batches: LabBatchSummary[]) => void;
 }
 
 const PAGE_SIZE = 15;
@@ -44,12 +43,132 @@ function formatProgram(program: string | null): string {
     .join(" ");
 }
 
+function prePasteurStatus(batch: LabBatchSummary) {
+  const workflow = batch.supSupTodoWorkflow;
+  if (workflow) {
+    if (!workflow.cold_chain_started_at) return "Not Ready";
+    if (workflow.pre_lab_result === "PASS") return "Passed";
+    if (workflow.pre_lab_result === "FAIL") return "Failed";
+    if (workflow.pre_sent_to_lab) return "Awaiting Result";
+    return "Ready for Lab";
+  }
+
+  if (batch.pre_pasteurization?.result === "PASS") return "Passed";
+  if (batch.pre_pasteurization?.result === "FAIL") return "Failed";
+  if (batch.pre_pasteurization?.result === "PENDING") return "Awaiting Result";
+  return batch.status === "POOLING" ? "Ready for Lab" : "Not Ready";
+}
+
+function postPasteurStatus(batch: LabBatchSummary) {
+  const workflow = batch.supSupTodoWorkflow;
+  if (workflow) {
+    if (workflow.pre_lab_result !== "PASS") return "Not Ready";
+    if (!workflow.pasteurization_confirmed) return "Not Ready";
+    if (workflow.post_lab_result === "PASS") return "Passed";
+    if (workflow.post_lab_result === "FAIL") return "Failed";
+    if (workflow.post_sent_to_lab) return "Awaiting Result";
+    return "Ready for Lab";
+  }
+
+  if (batch.post_pasteurization?.result === "PASS") return "Passed";
+  if (batch.post_pasteurization?.result === "FAIL") return "Failed";
+  if (batch.post_pasteurization?.result === "PENDING") return "Awaiting Result";
+  return batch.status === "PASTEURIZED" ? "Ready for Lab" : "Not Ready";
+}
+
+function ProcessStatusBadge({ label }: { label: string }) {
+  const className =
+    label === "Passed" || label === "Available"
+      ? "bg-green-600/10 text-green-700 border-green-600/30"
+      : label === "Failed"
+        ? "bg-destructive/10 text-destructive border-destructive/20"
+        : label === "To dispose"
+          ? "bg-orange-500/10 text-orange-700 border-orange-500/30"
+        : label === "Awaiting Result"
+          ? "bg-yellow-500/10 text-yellow-700 border-yellow-500/30"
+          : label === "Ready for Lab"
+            ? "bg-blue-500/10 text-blue-700 border-blue-500/30"
+            : "bg-muted text-muted-foreground border-border";
+
+  return (
+    <Badge
+      className={cn(
+        "inline-flex rounded border px-2 py-0.5 text-[10px] font-semibold",
+        className
+      )}
+    >
+      {label}
+    </Badge>
+  );
+}
+
+function collectionStatusLabel(batch: LabBatchSummary) {
+  const workflow = batch.supSupTodoWorkflow;
+
+  if (workflow?.pre_lab_result === "FAIL" || workflow?.post_lab_result === "FAIL") {
+    return "To dispose";
+  }
+
+  if (batch.status === "AVAILABLE") return "Available";
+  if (batch.status === "DISPOSED") return "To dispose";
+  if (workflow?.post_lab_result === "PASS") return "Available";
+  if (workflow?.pre_lab_result === "PASS") return "Passed";
+  if (workflow?.pre_sent_to_lab || workflow?.post_sent_to_lab) {
+    return "Awaiting Result";
+  }
+  if (workflow?.cold_chain_started_at) return "Ready for Lab";
+  return batch.status === "POOLING" ? "Not Ready" : "Ready for Lab";
+}
+
+function formatSearchDate(date: Date) {
+  const dateValue = new Date(date);
+  return [
+    new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(dateValue),
+    dateValue.toISOString().split("T")[0],
+  ].join(" ");
+}
+
+function collectionSearchText(batch: LabBatchSummary) {
+  const workflow = batch.supSupTodoWorkflow;
+  const values = [
+    batch.batch_code,
+    workflow ? `sample ${workflow.sample_no}` : "",
+    workflow ? `sample #${workflow.sample_no}` : "",
+    workflow ? String(workflow.sample_no) : "",
+    batch.donor_name,
+    formatSearchDate(batch.pooling_date),
+    formatProgram(batch.program),
+    batch.program ?? "",
+    prePasteurStatus(batch),
+    postPasteurStatus(batch),
+    collectionStatusLabel(batch),
+    batch.status,
+    batch.remaining_volume.toString(),
+    batch.remaining_volume.toLocaleString(),
+    batch.total_volume.toString(),
+    batch.total_volume.toLocaleString(),
+    batch.pre_pasteurization?.result ?? "",
+    batch.post_pasteurization?.result ?? "",
+    workflow?.pre_lab_result ?? "",
+    workflow?.post_lab_result ?? "",
+    workflow?.final_status ?? "",
+    workflow?.current_step ?? "",
+  ];
+
+  return values.join(" ").toLowerCase();
+}
+
 export function BatchTable({
   batches,
   selectedBatchId,
   onSelectBatch,
   selectedIds,
   onSelectionChange,
+  onFilteredBatchesChange,
 }: BatchTableProps) {
   const [search, setSearch] = useState("");
   const [programFilter, setProgramFilter] = useState<string>("all");
@@ -57,9 +176,10 @@ export function BatchTable({
 
   const filtered = useMemo(() => {
     return batches.filter((batch) => {
+      const searchableText = collectionSearchText(batch);
+      const normalizedSearch = search.trim().toLowerCase();
       const matchesSearch =
-        search === "" ||
-        batch.batch_code.toLowerCase().includes(search.toLowerCase());
+        normalizedSearch === "" || searchableText.includes(normalizedSearch);
 
       const matchesProgram =
         programFilter === "all" || batch.program === programFilter;
@@ -69,10 +189,15 @@ export function BatchTable({
   }, [batches, search, programFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
   const paginated = filtered.slice(
-    (page - 1) * PAGE_SIZE,
-    page * PAGE_SIZE
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE
   );
+
+  useEffect(() => {
+    onFilteredBatchesChange?.(filtered);
+  }, [filtered, onFilteredBatchesChange]);
 
   const isAllPageSelected =
     paginated.length > 0 &&
@@ -113,7 +238,7 @@ export function BatchTable({
       <div className="px-4 py-2 border-b border-border bg-muted flex justify-between items-center shrink-0">
         <div className="flex items-center gap-2">
           <h3 className="text-xs font-semibold text-foreground uppercase tracking-wider">
-            Active Batches
+            Active Collections
           </h3>
           <Badge className="bg-muted-foreground/10 text-muted-foreground px-2 py-0.5 text-[10px]">
             {filtered.length}
@@ -133,7 +258,7 @@ export function BatchTable({
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              placeholder="Search batches..."
+              placeholder="Search collections..."
               className="h-8 pl-8 text-xs bg-background border-border"
             />
           </div>
@@ -181,16 +306,19 @@ export function BatchTable({
                 Batch ID
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
+                Donor Name
+              </TableHead>
+              <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
                 Date Logged
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
                 Program
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold text-center">
-                Pre-Past.
+                Pre-Pasteurization
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold text-center">
-                Post-Past.
+                Post-Pasteurization
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
                 Status
@@ -226,6 +354,9 @@ export function BatchTable({
                   <TableCell className="py-2.5 px-3 text-[13px] font-semibold text-primary">
                     {batch.batch_code}
                   </TableCell>
+                  <TableCell className="py-2.5 px-3 text-[13px] text-foreground">
+                    {batch.donor_name}
+                  </TableCell>
                   <TableCell className="py-2.5 px-3 text-[13px] text-muted-foreground">
                     {formatDate(batch.pooling_date)}
                   </TableCell>
@@ -233,42 +364,16 @@ export function BatchTable({
                     {formatProgram(batch.program)}
                   </TableCell>
                   <TableCell className="py-2.5 px-3 text-center">
-                    {batch.pre_pasteurization ? (
-                      <LabResultBadge
-                        result={
-                          batch.pre_pasteurization.result as
-                            | "PASS"
-                            | "FAIL"
-                            | "PENDING"
-                        }
-                      />
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground">
-                        --
-                      </span>
-                    )}
+                    <ProcessStatusBadge label={prePasteurStatus(batch)} />
                   </TableCell>
                   <TableCell className="py-2.5 px-3 text-center">
-                    {batch.post_pasteurization ? (
-                      <LabResultBadge
-                        result={
-                          batch.post_pasteurization.result as
-                            | "PASS"
-                            | "FAIL"
-                            | "PENDING"
-                        }
-                      />
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground">
-                        --
-                      </span>
-                    )}
+                    <ProcessStatusBadge label={postPasteurStatus(batch)} />
                   </TableCell>
                   <TableCell className="py-2.5 px-3">
-                    <BatchStatusBadge status={batch.status} />
+                    <ProcessStatusBadge label={collectionStatusLabel(batch)} />
                   </TableCell>
                   <TableCell className="py-2.5 px-3 text-[13px] font-semibold text-foreground text-right tabular-nums">
-                    {batch.total_volume.toLocaleString()}
+                    {batch.remaining_volume.toLocaleString()}
                   </TableCell>
                 </TableRow>
               );
@@ -276,10 +381,10 @@ export function BatchTable({
             {paginated.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="py-12 text-center text-muted-foreground text-sm"
                 >
-                  No batches found matching your criteria.
+                  No collections found matching your criteria.
                 </TableCell>
               </TableRow>
             )}
@@ -293,16 +398,16 @@ export function BatchTable({
           Showing{" "}
           {filtered.length === 0
             ? 0
-            : (page - 1) * PAGE_SIZE + 1}
-          –{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}{" "}
-          batches
+            : (safePage - 1) * PAGE_SIZE + 1}
+          –{Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length}{" "}
+          collections
         </span>
         <div className="flex items-center gap-1">
           <Button
             variant="outline"
             size="icon-xs"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
+            disabled={safePage === 1}
             className="border-border"
           >
             <ChevronLeft className="size-3" />
@@ -312,12 +417,12 @@ export function BatchTable({
             return (
               <Button
                 key={pageNum}
-                variant={page === pageNum ? "default" : "outline"}
+                variant={safePage === pageNum ? "default" : "outline"}
                 size="xs"
                 onClick={() => setPage(pageNum)}
                 className={cn(
                   "text-xs min-w-[28px]",
-                  page === pageNum
+                  safePage === pageNum
                     ? "bg-primary text-primary-foreground"
                     : "border-border"
                 )}
@@ -330,7 +435,7 @@ export function BatchTable({
             variant="outline"
             size="icon-xs"
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
+            disabled={safePage === totalPages}
             className="border-border"
           >
             <ChevronRight className="size-3" />

@@ -1,26 +1,17 @@
 import {
   getRecipientsWithStats,
-  getRecipientById,
   getRecipientMetrics,
 } from "@/features/recipients/queries";
 import { RecipientMetricCards } from "@/features/recipients/components/recipient-metric-cards";
 import { RecipientRegistry } from "@/features/recipients/components/recipient-registry";
-import type { RecipientDetail } from "@/features/recipients/queries";
+import { measure } from "@/core/utils/perf";
 
 export default async function RecipientsPage() {
-  const [recipients, metrics] = await Promise.all([
-    getRecipientsWithStats(),
-    getRecipientMetrics(),
-  ]);
-
-  const recipientDetails: Record<number, RecipientDetail> = {};
-  await Promise.all(
-    recipients.slice(0, 20).map(async (r) => {
-      const detail = await getRecipientById(r.beneficiary_id);
-      if (detail) {
-        recipientDetails[r.beneficiary_id] = detail;
-      }
-    })
+  const [recipients, metrics] = await measure("recipients page load", () =>
+    Promise.all([
+      getRecipientsWithStats(),
+      getRecipientMetrics(),
+    ])
   );
 
   return (
@@ -31,10 +22,7 @@ export default async function RecipientsPage() {
         </h1>
       </div>
       <RecipientMetricCards metrics={metrics} />
-      <RecipientRegistry
-        recipients={recipients}
-        recipientDetails={recipientDetails}
-      />
+      <RecipientRegistry recipients={recipients} />
     </div>
   );
 }

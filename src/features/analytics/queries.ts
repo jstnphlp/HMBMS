@@ -33,6 +33,19 @@ export type ReportWithUser = {
   user: { email: string; role: string };
 };
 
+function normalizeDateRange(dateFrom?: Date, dateTo?: Date) {
+  const end = dateTo ?? new Date();
+  const start =
+    dateFrom ?? new Date(end.getFullYear(), end.getMonth() - 2, end.getDate());
+  const maxRangeMs = 93 * 24 * 60 * 60 * 1000;
+
+  if (end.getTime() - start.getTime() > maxRangeMs) {
+    return { dateFrom: new Date(end.getTime() - maxRangeMs), dateTo: end };
+  }
+
+  return { dateFrom: start, dateTo: end };
+}
+
 export async function getAnalyticsSummary(
   dateFrom: Date,
   dateTo: Date,
@@ -83,38 +96,43 @@ export async function getAnalyticsSummary(
 }
 
 export async function getVolumeTrends(
-  dateFrom: Date,
-  dateTo: Date,
+  dateFrom?: Date,
+  dateTo?: Date,
   program?: string
 ): Promise<VolumeTrendPoint[]> {
+  const range = normalizeDateRange(dateFrom, dateTo);
   const programFilter =
     program && program !== "ALL" ? { program: program as "SUPSUP_TODO" | "MILKY_WAY" | "MOMS_ACT" } : {};
 
+  // TODO: Replace this bounded JS grouping with SQL date_trunc/week aggregation
+  // once Prisma raw query typing is centralized for analytics queries.
   const collections = await db.collection.findMany({
     where: {
-      collection_date: { gte: dateFrom, lte: dateTo },
+      collection_date: { gte: range.dateFrom, lte: range.dateTo },
       ...programFilter,
     },
     select: { collection_date: true, volume: true },
+    orderBy: { collection_date: "asc" },
   });
 
   const dispensings = await db.dispensing.findMany({
     where: {
-      dispensing_date: { gte: dateFrom, lte: dateTo },
+      dispensing_date: { gte: range.dateFrom, lte: range.dateTo },
     },
     select: { dispensing_date: true, volume: true },
+    orderBy: { dispensing_date: "asc" },
   });
 
   const weeklyMap: Record<string, { input: number; output: number }> = {};
 
   for (const c of collections) {
-    const week = getWeekLabel(c.collection_date, dateFrom);
+    const week = getWeekLabel(c.collection_date, range.dateFrom);
     if (!weeklyMap[week]) weeklyMap[week] = { input: 0, output: 0 };
     weeklyMap[week].input += c.volume;
   }
 
   for (const d of dispensings) {
-    const week = getWeekLabel(d.dispensing_date, dateFrom);
+    const week = getWeekLabel(d.dispensing_date, range.dateFrom);
     if (!weeklyMap[week]) weeklyMap[week] = { input: 0, output: 0 };
     weeklyMap[week].output += d.volume;
   }
@@ -149,8 +167,13 @@ export async function getProgramDistribution(
 }
 
 export async function getReports(): Promise<ReportWithUser[]> {
-  // Report model not yet defined in schema — return empty for now
-  return [];
+  return db.report.findMany({
+    take: 25,
+    orderBy: { generated_at: "desc" },
+    include: {
+      user: { select: { email: true, role: true } },
+    },
+  });
 }
 
 function getWeekLabel(date: Date, rangeStart: Date): string {

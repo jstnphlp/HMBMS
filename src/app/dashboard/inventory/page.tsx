@@ -5,13 +5,18 @@ import {
 } from "@/features/inventory/queries";
 import { InventoryMetrics } from "@/features/inventory/components/inventory-metrics";
 import { InventoryTabs } from "@/features/inventory/components/inventory-tabs";
+import { measure } from "@/core/utils/perf";
 
 export default async function InventoryPage() {
-  const [summary, collections, disposals] = await Promise.all([
-    getInventorySummary(),
-    getCollectionLogs(),
-    getDisposalLogs(),
-  ]);
+  const [summary, collections, disposals] = await measure(
+    "inventory page load",
+    () =>
+      Promise.all([
+        getInventorySummary(),
+        getCollectionLogs(),
+        getDisposalLogs(),
+      ])
+  );
 
   return (
     <div className="mx-auto max-w-7xl">

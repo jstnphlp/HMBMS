@@ -9,10 +9,19 @@ import {
   type UpdateRecipientInput,
 } from "./schemas";
 import { mapPrismaError } from "@/core/utils/prisma-error";
+import { getRecipientById } from "./queries";
 
 export type ActionResult<T> =
   | { success: true; data: T }
   | { success: false; errors: Record<string, string[]> };
+
+export async function getRecipientDetail(beneficiaryId: number) {
+  if (!Number.isInteger(beneficiaryId) || beneficiaryId <= 0) {
+    return null;
+  }
+
+  return getRecipientById(beneficiaryId);
+}
 
 export async function createRecipient(
   rawInput: unknown

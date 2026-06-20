@@ -4,6 +4,15 @@ import { db } from "@/core/db";
 import { revalidatePath } from "next/cache";
 import { registerDonorSchema, updateDonorSchema, logDropoffSchema } from "./schemas";
 import { mapPrismaError } from "@/core/utils/prisma-error";
+import { getDonorById } from "./queries";
+
+export async function getDonorDetail(donorId: number) {
+  if (!Number.isInteger(donorId) || donorId <= 0) {
+    return null;
+  }
+
+  return getDonorById(donorId);
+}
 
 export async function registerDonor(formData: FormData) {
   const raw = {
@@ -23,10 +32,12 @@ export async function registerDonor(formData: FormData) {
     delivery_place: formData.get("delivery_place") as string,
     delivery_type: formData.get("delivery_type") as string,
     aog: formData.get("aog") as string,
+    pregnancy_delivery_details: formData.get("pregnancy_delivery_details") as string,
     infant_name: formData.get("infant_name") as string,
     infant_birthdate: formData.get("infant_birthdate") as string,
     infant_sex: formData.get("infant_sex") as string,
     infant_birth_weight: formData.get("infant_birth_weight") as string,
+    infant_details: formData.get("infant_details") as string,
   };
 
   const parsed = registerDonorSchema.safeParse(raw);
@@ -71,10 +82,12 @@ export async function registerDonor(formData: FormData) {
         delivery_place: data.delivery_place || null,
         delivery_type: data.delivery_type || null,
         aog: data.aog || null,
+        pregnancy_delivery_details: data.pregnancy_delivery_details || null,
         infant_name: data.infant_name || null,
         infant_birthdate: data.infant_birthdate ?? null,
         infant_sex: data.infant_sex || null,
         infant_birth_weight: data.infant_birth_weight || null,
+        infant_details: data.infant_details || null,
       },
     });
 
@@ -110,6 +123,16 @@ export async function updateDonor(donorId: number, formData: FormData) {
     spouse_name: formData.get("spouse_name") as string,
     spouse_occupation: formData.get("spouse_occupation") as string,
     spouse_contact_no: formData.get("spouse_contact_no") as string,
+    delivery_date: (formData.get("delivery_date") ?? "") as string,
+    delivery_place: (formData.get("delivery_place") ?? "") as string,
+    delivery_type: (formData.get("delivery_type") ?? "") as string,
+    aog: (formData.get("aog") ?? "") as string,
+    pregnancy_delivery_details: (formData.get("pregnancy_delivery_details") ?? "") as string,
+    infant_name: (formData.get("infant_name") ?? "") as string,
+    infant_birthdate: (formData.get("infant_birthdate") ?? "") as string,
+    infant_sex: (formData.get("infant_sex") ?? "") as string,
+    infant_birth_weight: (formData.get("infant_birth_weight") ?? "") as string,
+    infant_details: (formData.get("infant_details") ?? "") as string,
     status: formData.get("status") as string,
   };
 
@@ -140,6 +163,16 @@ export async function updateDonor(donorId: number, formData: FormData) {
         spouse_name: data.spouse_name || null,
         spouse_occupation: data.spouse_occupation || null,
         spouse_contact_no: data.spouse_contact_no || null,
+        delivery_date: data.delivery_date ?? null,
+        delivery_place: data.delivery_place || null,
+        delivery_type: data.delivery_type || null,
+        aog: data.aog || null,
+        pregnancy_delivery_details: data.pregnancy_delivery_details || null,
+        infant_name: data.infant_name || null,
+        infant_birthdate: data.infant_birthdate ?? null,
+        infant_sex: data.infant_sex || null,
+        infant_birth_weight: data.infant_birth_weight || null,
+        infant_details: data.infant_details || null,
         status: data.status,
       },
     });
@@ -219,6 +252,7 @@ export async function recordDropoff(donorId: number, formData: FormData) {
             batch_code: data.batch_no!,
             pooling_date: data.collection_date,
             total_volume: data.volume,
+            remaining_volume: data.volume,
             status: "AVAILABLE",
             created_by: user.user_id,
           },
@@ -265,6 +299,7 @@ export async function recordDropoff(donorId: number, formData: FormData) {
             batch_code: `UNP-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
             pooling_date: data.collection_date,
             total_volume: data.volume,
+            remaining_volume: data.volume,
             status: "TESTING",
             created_by: user.user_id,
           },

@@ -1,11 +1,10 @@
 import {
   getDonorsWithStats,
-  getDonorById,
   getDonorMetrics,
 } from "@/features/donors/queries";
 import { DonorMetricCards } from "@/features/donors/components/donor-metric-cards";
 import { DonorRegistry } from "@/features/donors/components/donor-registry";
-import type { DonorDetail } from "@/features/donors/queries";
+import { measure } from "@/core/utils/perf";
 
 interface DonorsPageProps {
   searchParams: Promise<{ query?: string }>;
@@ -15,19 +14,11 @@ export default async function DonorsPage({ searchParams }: DonorsPageProps) {
   const params = await searchParams;
   const query = params.query ?? "";
 
-  const [donors, metrics] = await Promise.all([
-    getDonorsWithStats(query || undefined),
-    getDonorMetrics(),
-  ]);
-
-  const donorDetails: Record<number, DonorDetail> = {};
-  await Promise.all(
-    donors.slice(0, 20).map(async (d) => {
-      const detail = await getDonorById(d.donor_id);
-      if (detail) {
-        donorDetails[d.donor_id] = detail;
-      }
-    })
+  const [donors, metrics] = await measure("donors page load", () =>
+    Promise.all([
+      getDonorsWithStats(query || undefined),
+      getDonorMetrics(),
+    ])
   );
 
   return (
@@ -40,7 +31,6 @@ export default async function DonorsPage({ searchParams }: DonorsPageProps) {
       <DonorMetricCards metrics={metrics} />
       <DonorRegistry
         donors={donors}
-        donorDetails={donorDetails}
         searchQuery={query}
       />
     </div>

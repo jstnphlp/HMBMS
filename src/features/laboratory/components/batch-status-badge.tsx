@@ -33,8 +33,8 @@ export function BatchStatusBadge({ status, className }: BatchStatusBadgeProps) {
     AVAILABLE: {
       label: "Available",
       className:
-        "bg-primary/10 text-primary border border-primary/20",
-      dotClass: "bg-primary",
+        "bg-green-600/10 text-green-700 border border-green-600/30",
+      dotClass: "bg-green-600",
     },
     DISPOSED: {
       label: "Disposed",

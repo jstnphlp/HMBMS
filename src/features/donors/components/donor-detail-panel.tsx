@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useTransition, useRef } from "react";
+import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/core/ui/button";
-import { Badge } from "@/core/ui/badge";
 import { Input } from "@/core/ui/input";
 import { Label } from "@/core/ui/label";
 import {
@@ -20,45 +19,46 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/core/ui/dialog";
-import { Separator } from "@/core/ui/separator";
 import { DonorStatusBadge } from "./donor-status-badge";
 import { ProgramBadge } from "./program-badge";
-import { cn } from "@/core/utils/cn";
+import { StartWorkflowDialog } from "./start-workflow-dialog";
+import { SupsupTodoDetailsModal } from "@/features/supsup-todo/components/supsup-todo-details-modal";
+import { getSupsupTodoStartBlockReason } from "@/features/supsup-todo/eligibility";
 import { updateDonor } from "../actions";
-import { LogDropoffModal } from "./log-dropoff-modal";
-import { DonorHistoryModal } from "./donor-history-modal";
+import { cn } from "@/core/utils/cn";
 import {
-  Phone,
-  Home,
   Edit,
-  Check,
   FileText,
-  X,
+  Home,
   Loader2,
+  Phone,
+  X,
 } from "lucide-react";
 import type { DonorDetail } from "../queries";
 
 interface DonorDetailPanelProps {
   donor: DonorDetail;
   onClose: () => void;
+  onDonorUpdated?: () => Promise<void> | void;
   className?: string;
 }
-
-const screeningSteps = [
-  "Interview",
-  "Blood Test",
-  "Home Visit",
-  "Cleared",
-];
 
 export function DonorDetailPanel({
   donor,
   onClose,
+  onDonorUpdated,
   className,
 }: DonorDetailPanelProps) {
   const [editOpen, setEditOpen] = useState(false);
-  const [dropoffOpen, setDropoffOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  const eligibility = donor.supSupTodoEligibility;
+  const recentWorkflows = donor.supSupTodoWorkflows.slice(0, 3);
+  const startBlockReason = getSupsupTodoStartBlockReason(eligibility);
+
+  function getInitials(first: string, last: string) {
+    return `${first[0] ?? ""}${last[0] ?? ""}`.toUpperCase();
+  }
 
   function formatDate(date: Date | null) {
     if (!date) return "--";
@@ -69,17 +69,18 @@ export function DonorDetailPanel({
     }).format(new Date(date));
   }
 
-  function getInitials(first: string, last: string) {
-    return `${first[0] ?? ""}${last[0] ?? ""}`.toUpperCase();
+  function statusLabel(status: string) {
+    return status
+      .toLowerCase()
+      .split("_")
+      .map((part) => part[0].toUpperCase() + part.slice(1))
+      .join(" ");
   }
 
   const registrationDate = new Intl.DateTimeFormat("en-US", {
     month: "short",
     year: "numeric",
   }).format(new Date(donor.registration));
-
-  const completedSteps =
-    donor.status === "ACTIVE" ? screeningSteps.length : 1;
 
   return (
     <>
@@ -89,7 +90,6 @@ export function DonorDetailPanel({
           className
         )}
       >
-        {/* Profile Header */}
         <div className="p-4 border-b border-border bg-card shrink-0">
           <div className="flex justify-between items-start mb-3">
             <div className="flex items-center gap-3">
@@ -131,173 +131,133 @@ export function DonorDetailPanel({
           </div>
         </div>
 
-        {/* Profile Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {/* Screening Tracker */}
-          <div>
-            <h3 className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-3">
-              Screening Tracker
-            </h3>
-            <div className="flex justify-between items-center relative px-2">
-              <div className="absolute top-3 left-6 right-6 h-0.5 bg-border -z-10" />
-              <div
-                className="absolute top-3 left-6 h-0.5 bg-emerald-600 -z-10 transition-all"
-                style={{
-                  width: `calc(${((completedSteps - 1) / (screeningSteps.length - 1)) * 100}% - ${((completedSteps - 1) / (screeningSteps.length - 1)) * 48}px)`,
-                }}
-              />
-              {screeningSteps.map((step, i) => {
-                const isCompleted = i < completedSteps;
-                const isCurrent = i === completedSteps - 1;
-                return (
-                  <div
-                    key={step}
-                    className="flex flex-col items-center gap-1 relative z-0 bg-surface px-1"
-                  >
-                    <div
-                      className={cn(
-                        "w-6 h-6 rounded-full flex items-center justify-center ring-2 ring-surface text-[14px]",
-                        isCompleted
-                          ? "bg-emerald-600 text-white"
-                          : "bg-border text-muted-foreground"
-                      )}
-                    >
-                      {isCompleted ? (
-                        <Check className="size-3" />
-                      ) : (
-                        <span className="text-[10px]">{i + 1}</span>
-                      )}
-                    </div>
-                    <span
-                      className={cn(
-                        "text-[10px]",
-                        isCurrent
-                          ? "font-bold text-emerald-700"
-                          : "text-muted-foreground"
-                      )}
-                    >
-                      {step}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Key Metrics */}
-          <div>
+          <section>
             <h3 className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-2">
               Donation Metrics
             </h3>
             <div className="grid grid-cols-2 gap-2">
-              <div className="bg-muted/50 p-3 rounded border border-border/50">
-                <span className="text-[11px] text-muted-foreground block mb-1">
-                  Total Volume
-                </span>
-                <span className="text-[20px] font-bold text-primary">
-                  {donor.total_volume.toLocaleString()}{" "}
-                  <span className="text-[12px] font-normal text-muted-foreground">
-                    mL
-                  </span>
-                </span>
-              </div>
-              <div className="bg-muted/50 p-3 rounded border border-border/50">
-                <span className="text-[11px] text-muted-foreground block mb-1">
-                  Donation Count
-                </span>
-                <span className="text-[20px] font-bold text-primary">
-                  {donor.donation_count}{" "}
-                  <span className="text-[12px] font-normal text-muted-foreground">
-                    batches
-                  </span>
-                </span>
-              </div>
+              <MetricBox
+                label="Total Volume"
+                value={`${donor.total_volume.toLocaleString()} mL`}
+              />
+              <MetricBox
+                label="Donation Count"
+                value={donor.donation_count.toLocaleString()}
+              />
             </div>
-          </div>
+          </section>
 
-          {/* Contact Info */}
-          <div>
-            <h3 className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-2 flex items-center justify-between">
+          <section>
+            <h3 className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-2">
               Contact Info
-              <Button
-                variant="link"
-                className="text-primary h-auto p-0 text-[10px] font-normal"
-                onClick={() => setEditOpen(true)}
-              >
-                Edit
-              </Button>
             </h3>
             <div className="space-y-2 text-[13px]">
-              <div className="flex items-start gap-2">
-                <Phone className="size-4 text-muted-foreground mt-0.5 shrink-0" />
-                <span className="text-foreground">{donor.contact_no}</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <Home className="size-4 text-muted-foreground mt-0.5 shrink-0" />
-                <span className="text-foreground">{donor.address}</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <FileText className="size-4 text-muted-foreground mt-0.5 shrink-0" />
-                <span className="text-foreground">
-                  Civil Status: {donor.civil_status}
-                </span>
-              </div>
+              <InfoRow icon={<Phone className="size-4" />} value={donor.contact_no} />
+              <InfoRow icon={<Home className="size-4" />} value={donor.address} />
+              <InfoRow
+                icon={<FileText className="size-4" />}
+                value={`Civil Status: ${donor.civil_status}`}
+              />
             </div>
-          </div>
+          </section>
 
-          {/* Recent Collections */}
-          {donor.collections.length > 0 && (
-            <div>
-              <h3 className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-2">
-                Recent Collections
-              </h3>
-              <div className="space-y-2">
-                {donor.collections.slice(0, 5).map((c) => (
+          <section>
+            <h3 className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-2">
+              Supsup Todo Eligibility
+            </h3>
+            <div className="grid gap-2 text-[12px]">
+              <StatusRow
+                label="Screening"
+                value={
+                  eligibility?.screening_result === "PASS"
+                    ? "Passed"
+                    : eligibility?.screening_result === "FAIL"
+                      ? "Failed"
+                      : "Pending"
+                }
+                tone={
+                  eligibility?.screening_result === "PASS"
+                    ? "success"
+                    : eligibility?.screening_result === "FAIL"
+                      ? "danger"
+                      : "muted"
+                }
+              />
+              <StatusRow
+                label="Interview & Consent"
+                value={eligibility?.consent_signed ? "Signed" : "Pending"}
+                tone={eligibility?.consent_signed ? "success" : "muted"}
+              />
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-2">
+              Recent Supsup Todo Samples
+            </h3>
+            <div className="space-y-2">
+              {recentWorkflows.length > 0 ? (
+                recentWorkflows.map((workflow) => (
                   <div
-                    key={c.ctn}
-                    className="flex justify-between items-center text-[12px] py-1.5 px-2 rounded bg-muted/30"
+                    key={workflow.workflow_id}
+                    className="rounded border border-border/50 bg-muted/30 px-3 py-2 text-[12px]"
                   >
-                    <div>
+                    <div className="flex items-center justify-between gap-2">
                       <span className="font-medium text-foreground">
-                        CTN-{c.ctn.toString().padStart(4, "0")}
+                        Sample #{workflow.sample_no}
                       </span>
-                      <span className="text-muted-foreground ml-2">
-                        {formatDate(c.collection_date)}
+                      <span className="font-semibold text-primary">
+                        {workflow.extracted_volume ??
+                          workflow.collection?.volume ??
+                          "--"}{" "}
+                        mL
                       </span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-foreground">
-                        {c.volume} mL
+                    <div className="mt-1 flex items-center justify-between gap-2 text-muted-foreground">
+                      <span>{formatDate(workflow.collection?.collection_date ?? null)}</span>
+                      <span className="text-right">
+                        {statusLabel(workflow.final_status)}
                       </span>
-                      {c.batch && (
-                        <Badge className="bg-muted text-muted-foreground text-[9px] px-1.5 py-0">
-                          {c.batch.batch_code}
-                        </Badge>
-                      )}
                     </div>
                   </div>
-                ))}
-              </div>
+                ))
+              ) : (
+                <div className="rounded border border-border/50 bg-muted/30 px-3 py-4 text-center text-[12px] text-muted-foreground">
+                  No Supsup Todo samples yet.
+                </div>
+              )}
             </div>
-          )}
+            <Button
+              variant="outline"
+              className="mt-3 h-8 w-full text-xs border-border"
+              onClick={() => setDetailsOpen(true)}
+            >
+              <FileText className="size-3.5 mr-1.5" />
+              View All Details
+            </Button>
+          </section>
         </div>
 
-        {/* Action Footer */}
-        <div className="p-3 border-t border-border bg-card shrink-0 flex gap-2">
-          <Button
-            variant="outline"
-            className="flex-1 h-8 text-xs border-border"
-            disabled={donor.status === "INACTIVE"}
-            onClick={() => setDropoffOpen(true)}
-          >
-            Log Drop-off
-          </Button>
-          <Button
-            className="flex-1 h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={() => setHistoryOpen(true)}
-          >
-            View History
-          </Button>
+        <div className="p-3 border-t border-border bg-card shrink-0 grid gap-2">
+          <StartWorkflowDialog
+            donorId={donor.donor_id}
+            donorName={`${donor.first_name} ${donor.last_name}`}
+            donorStatus={donor.status}
+            eligibility={eligibility}
+            className="h-8 w-full text-xs bg-primary text-primary-foreground hover:bg-primary/90"
+            onStarted={async () => {
+              await onDonorUpdated?.();
+              setDetailsOpen(true);
+            }}
+          />
+          {(startBlockReason || donor.status === "INACTIVE") && (
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              {donor.status === "INACTIVE"
+                ? "Inactive donors cannot start a workflow."
+                : startBlockReason}
+            </p>
+          )}
         </div>
       </section>
 
@@ -305,21 +265,62 @@ export function DonorDetailPanel({
         donor={donor}
         open={editOpen}
         onOpenChange={setEditOpen}
+        onSaved={onDonorUpdated}
       />
 
-      <LogDropoffModal
-        donorId={donor.donor_id}
-        donorName={`${donor.first_name} ${donor.last_name}`}
-        open={dropoffOpen}
-        onOpenChange={setDropoffOpen}
-      />
-
-      <DonorHistoryModal
+      <SupsupTodoDetailsModal
         donor={donor}
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+        onUpdated={onDonorUpdated}
       />
     </>
+  );
+}
+
+function MetricBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-muted/50 p-3 rounded border border-border/50">
+      <span className="text-[11px] text-muted-foreground block mb-1">
+        {label}
+      </span>
+      <span className="text-[18px] font-bold text-primary">{value}</span>
+    </div>
+  );
+}
+
+function InfoRow({ icon, value }: { icon: React.ReactNode; value: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="text-muted-foreground mt-0.5 shrink-0">{icon}</span>
+      <span className="text-foreground">{value}</span>
+    </div>
+  );
+}
+
+function StatusRow({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "success" | "danger" | "muted";
+}) {
+  return (
+    <div className="flex items-center justify-between rounded border border-border/50 bg-muted/30 px-3 py-2">
+      <span className="text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          "font-semibold",
+          tone === "success" && "text-primary",
+          tone === "danger" && "text-destructive",
+          tone === "muted" && "text-muted-foreground"
+        )}
+      >
+        {value}
+      </span>
+    </div>
   );
 }
 
@@ -327,13 +328,30 @@ function DonorEditDialog({
   donor,
   open,
   onOpenChange,
+  onSaved,
 }: {
   donor: DonorDetail;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSaved?: () => Promise<void> | void;
 }) {
   const [isPending, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
+  const [status, setStatus] = useState<DonorDetail["status"]>(donor.status);
+  const [civilStatus, setCivilStatus] = useState(donor.civil_status);
+
+  function resetFormState() {
+    setStatus(donor.status);
+    setCivilStatus(donor.civil_status);
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      resetFormState();
+    }
+
+    onOpenChange(nextOpen);
+  }
 
   function toDateString(date: Date | string) {
     const d = new Date(date);
@@ -349,6 +367,7 @@ function DonorEditDialog({
 
       if (result.success) {
         toast.success("Donor information updated successfully.");
+        await onSaved?.();
         onOpenChange(false);
       } else {
         const errors = result.errors as Record<string, string[]>;
@@ -359,36 +378,90 @@ function DonorEditDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-background border-border">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-background border-border">
         <DialogHeader>
           <DialogTitle className="text-foreground text-lg">
             Edit Donor Information
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Update the donor&apos;s profile and status.
+            Update this donor&apos;s profile and status.
           </DialogDescription>
         </DialogHeader>
 
-        <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
-          {/* Status */}
-          <div className="flex items-center gap-3">
-            <h3 className="text-sm font-semibold text-foreground whitespace-nowrap">
-              Status
-            </h3>
-            <Separator className="flex-1 bg-border" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="hidden"
+            name="birthdate"
+            value={toDateString(donor.birthdate)}
+          />
+          <input type="hidden" name="middle_name" value={donor.middle_name ?? ""} />
+          <input type="hidden" name="religion" value={donor.religion ?? ""} />
+          <input type="hidden" name="occupation" value={donor.occupation ?? ""} />
+          <input type="hidden" name="spouse_name" value={donor.spouse_name ?? ""} />
+          <input
+            type="hidden"
+            name="spouse_occupation"
+            value={donor.spouse_occupation ?? ""}
+          />
+          <input
+            type="hidden"
+            name="spouse_contact_no"
+            value={donor.spouse_contact_no ?? ""}
+          />
+          <input
+            type="hidden"
+            name="delivery_date"
+            value={donor.delivery_date ? toDateString(donor.delivery_date) : ""}
+          />
+          <input type="hidden" name="delivery_place" value={donor.delivery_place ?? ""} />
+          <input type="hidden" name="delivery_type" value={donor.delivery_type ?? ""} />
+          <input type="hidden" name="aog" value={donor.aog ?? ""} />
+          <input
+            type="hidden"
+            name="pregnancy_delivery_details"
+            value={donor.pregnancy_delivery_details ?? ""}
+          />
+          <input type="hidden" name="infant_name" value={donor.infant_name ?? ""} />
+          <input
+            type="hidden"
+            name="infant_birthdate"
+            value={donor.infant_birthdate ? toDateString(donor.infant_birthdate) : ""}
+          />
+          <input type="hidden" name="infant_sex" value={donor.infant_sex ?? ""} />
+          <input
+            type="hidden"
+            name="infant_birth_weight"
+            value={donor.infant_birth_weight ?? ""}
+          />
+          <input type="hidden" name="infant_details" value={donor.infant_details ?? ""} />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <EditField
+              label="First Name"
+              name="first_name"
+              defaultValue={donor.first_name}
+              required
+            />
+            <EditField
+              label="Last Name"
+              name="last_name"
+              defaultValue={donor.last_name}
+              required
+            />
+            <EditField
+              label="Contact Number"
+              name="contact_no"
+              defaultValue={donor.contact_no}
+              required
+            />
             <div className="grid gap-2">
               <Label htmlFor="status" className="text-foreground">
-                Donor Status
-                <span className="text-destructive ml-0.5">*</span>
+                Status
               </Label>
-              <Select name="status" defaultValue={donor.status}>
-                <SelectTrigger
-                  id="status"
-                  className="bg-card border-border text-foreground w-full"
-                >
+              <input type="hidden" name="status" value={status} />
+              <Select value={status} onValueChange={(value) => setStatus(value as DonorDetail["status"])}>
+                <SelectTrigger id="status" className="bg-card border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -399,127 +472,38 @@ function DonorEditDialog({
             </div>
           </div>
 
-          <Separator className="bg-border" />
+          <EditField
+            label="Address"
+            name="address"
+            defaultValue={donor.address}
+            required
+          />
 
-          {/* Personal Information */}
-          <div className="flex items-center gap-3">
-            <h3 className="text-sm font-semibold text-foreground whitespace-nowrap">
-              Personal Information
-            </h3>
-            <Separator className="flex-1 bg-border" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-            <EditField
-              label="First Name"
-              name="first_name"
-              defaultValue={donor.first_name}
-              required
-            />
-            <EditField
-              label="Middle Name"
-              name="middle_name"
-              defaultValue={donor.middle_name ?? ""}
-            />
-            <EditField
-              label="Last Name"
-              name="last_name"
-              defaultValue={donor.last_name}
-              required
-            />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-            <EditField
-              label="Date of Birth"
-              name="birthdate"
-              type="date"
-              defaultValue={toDateString(donor.birthdate)}
-              required
-            />
-            <EditField
-              label="Contact Number"
-              name="contact_no"
-              placeholder="09XXXXXXXXX"
-              defaultValue={donor.contact_no}
-              required
-            />
-            <div className="grid gap-2">
-              <Label htmlFor="civil_status" className="text-foreground">
-                Civil Status
-                <span className="text-destructive ml-0.5">*</span>
-              </Label>
-              <Select name="civil_status" defaultValue={donor.civil_status}>
-                <SelectTrigger
-                  id="civil_status"
-                  className="bg-card border-border text-foreground w-full"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Single">Single</SelectItem>
-                  <SelectItem value="Married">Married</SelectItem>
-                  <SelectItem value="Widowed">Widowed</SelectItem>
-                  <SelectItem value="Separated">Separated</SelectItem>
-                  <SelectItem value="Divorced">Divorced</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-            <EditField
-              label="Address"
-              name="address"
-              defaultValue={donor.address}
-              required
-            />
-            <div className="grid grid-cols-2 gap-4 items-end">
-              <EditField
-                label="Religion"
-                name="religion"
-                defaultValue={donor.religion ?? ""}
-              />
-              <EditField
-                label="Occupation"
-                name="occupation"
-                defaultValue={donor.occupation ?? ""}
-              />
-            </div>
+          <div className="grid gap-2">
+            <Label htmlFor="civil_status" className="text-foreground">
+              Civil Status
+            </Label>
+            <input type="hidden" name="civil_status" value={civilStatus} />
+            <Select value={civilStatus} onValueChange={setCivilStatus}>
+              <SelectTrigger id="civil_status" className="bg-card border-border">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Single">Single</SelectItem>
+                <SelectItem value="Married">Married</SelectItem>
+                <SelectItem value="Widowed">Widowed</SelectItem>
+                <SelectItem value="Separated">Separated</SelectItem>
+                <SelectItem value="Divorced">Divorced</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
-          <Separator className="bg-border" />
-
-          {/* Spouse Information */}
-          <div className="flex items-center gap-3">
-            <h3 className="text-sm font-semibold text-foreground whitespace-nowrap">
-              Spouse Information
-            </h3>
-            <Separator className="flex-1 bg-border" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-            <EditField
-              label="Name of Spouse"
-              name="spouse_name"
-              defaultValue={donor.spouse_name ?? ""}
-            />
-            <EditField
-              label="Spouse Occupation"
-              name="spouse_occupation"
-              defaultValue={donor.spouse_occupation ?? ""}
-            />
-            <EditField
-              label="Spouse Contact No."
-              name="spouse_contact_no"
-              placeholder="09XXXXXXXXX"
-              defaultValue={donor.spouse_contact_no ?? ""}
-            />
-          </div>
-
-          {/* Submit */}
           <div className="flex justify-end gap-3 pt-2">
             <Button
               type="button"
               variant="outline"
               className="border-border text-foreground"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleOpenChange(false)}
               disabled={isPending}
             >
               Cancel
@@ -542,15 +526,11 @@ function DonorEditDialog({
 function EditField({
   label,
   name,
-  type = "text",
-  placeholder,
   defaultValue,
   required = false,
 }: {
   label: string;
   name: string;
-  type?: string;
-  placeholder?: string;
   defaultValue: string;
   required?: boolean;
 }) {
@@ -563,8 +543,6 @@ function EditField({
       <Input
         id={name}
         name={name}
-        type={type}
-        placeholder={placeholder}
         defaultValue={defaultValue}
         required={required}
         className="bg-card border-border text-foreground"

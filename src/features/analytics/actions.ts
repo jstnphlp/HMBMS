@@ -4,6 +4,32 @@ import { db } from "@/core/db";
 import { revalidatePath } from "next/cache";
 import { generateReportSchema } from "./schemas";
 import { mapPrismaError } from "@/core/utils/prisma-error";
+import {
+  type AnalyticsSummary,
+  getAnalyticsSummary,
+  getProgramDistribution,
+  getReports,
+  getVolumeTrends,
+  type ProgramDistSegment,
+  type ReportWithUser,
+  type VolumeTrendPoint,
+} from "./queries";
+import type { GenerateReportInput } from "./schemas";
+import type { Report } from "@/generated/prisma/client";
+
+type GenerateReportAndRefreshAnalyticsResult =
+  | {
+      success: true;
+      report: Report;
+      summary: AnalyticsSummary;
+      volumeTrends: VolumeTrendPoint[];
+      programDist: ProgramDistSegment[];
+      reports: ReportWithUser[];
+    }
+  | {
+      success: false;
+      errors: Record<string, string[]>;
+    };
 
 export async function generateReport(rawInput: unknown) {
   const parsed = generateReportSchema.safeParse(rawInput);
@@ -51,6 +77,47 @@ export async function generateReport(rawInput: unknown) {
       errors: { _form: [mapPrismaError(err)] },
     };
   }
+}
+
+export async function generateReportAndRefreshAnalytics(
+  rawInput: unknown
+): Promise<GenerateReportAndRefreshAnalyticsResult> {
+  const parsed = generateReportSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    return {
+      success: false,
+      errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+    };
+  }
+
+  const input: GenerateReportInput = parsed.data;
+  const reportResult = await generateReport(input);
+
+  if (!reportResult.success || !reportResult.data) {
+    return {
+      success: false,
+      errors: (reportResult.errors ?? {
+        _form: ["Failed to generate report"],
+      }) as Record<string, string[]>,
+    };
+  }
+  const report = reportResult.data;
+
+  const [summary, volumeTrends, programDist, reports] = await Promise.all([
+    getAnalyticsSummary(input.date_from, input.date_to, input.program),
+    getVolumeTrends(input.date_from, input.date_to, input.program),
+    getProgramDistribution(input.date_from, input.date_to),
+    getReports(),
+  ]);
+
+  return {
+    success: true,
+    report,
+    summary,
+    volumeTrends,
+    programDist,
+    reports,
+  };
 }
 
 export async function deleteReport(reportId: number) {

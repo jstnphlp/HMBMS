@@ -13,6 +13,154 @@ import type {
   BulkUpdateBatchStatusInput,
 } from "./schemas";
 import { getCurrentUser } from "@/features/auth/actions";
+import type { Prisma } from "@/generated/prisma/client";
+
+type Tx = Prisma.TransactionClient;
+
+function revalidateLabSurfaces() {
+  revalidatePath("/dashboard/laboratory");
+  revalidatePath("/dashboard/donors");
+  revalidatePath("/dashboard/inventory");
+  revalidatePath("/dashboard/dispensing");
+}
+
+async function syncSupsupWorkflowLabResult({
+  tx,
+  batchId,
+  stage,
+  result,
+  userId,
+  testDate,
+  remarks,
+}: {
+  tx: Tx;
+  batchId: number;
+  stage: "PRE_PASTEURIZATION" | "POST_PASTEURIZATION";
+  result: "PASS" | "FAIL";
+  userId: number;
+  testDate: Date;
+  remarks?: string;
+}) {
+  const workflow = await tx.supsupTodoDonationWorkflow.findUnique({
+    where: { batch_id: batchId },
+    include: { collection: true },
+  });
+
+  if (!workflow) return;
+
+  const batch = await tx.batch.findUnique({
+    where: { batch_id: batchId },
+    select: { remaining_volume: true, total_volume: true },
+  });
+  const originalVolume = workflow.extracted_volume ?? workflow.collection?.volume ?? batch?.total_volume ?? 0;
+  const remainingVolume = batch?.remaining_volume ?? originalVolume;
+
+  if (stage === "PRE_PASTEURIZATION") {
+    await tx.batch.update({
+      where: { batch_id: batchId },
+      data: { status: result === "PASS" ? "TESTING" : "DISPOSED" },
+    });
+
+    if (result === "FAIL") {
+      const existingDisposal = await tx.disposal.findFirst({
+        where: { batch_id: batchId, reason: "PRE_LAB_FAILED" },
+      });
+      const disposalData = {
+        disposal_date: testDate,
+        volume: remainingVolume,
+        disposed_by: userId,
+        remarks: remarks ?? null,
+      };
+      if (existingDisposal) {
+        await tx.disposal.update({
+          where: { disposal_id: existingDisposal.disposal_id },
+          data: disposalData,
+        });
+      } else {
+        await tx.disposal.create({
+          data: {
+            batch_id: batchId,
+            reason: "PRE_LAB_FAILED",
+            ...disposalData,
+          },
+        });
+      }
+    }
+
+    await tx.supsupTodoDonationWorkflow.update({
+      where: { workflow_id: workflow.workflow_id },
+      data: {
+        pre_lab_result: result,
+        pre_lab_received_at: testDate,
+        pre_lab_notes: remarks ?? null,
+        final_status: result === "PASS" ? "READY_FOR_PASTEURIZATION" : "PRE_LAB_FAILED",
+        current_step: result === "PASS" ? "PASTEURIZATION" : "DISPOSED",
+        updated_by: userId,
+      },
+    });
+    return;
+  }
+
+  await tx.batch.update({
+    where: { batch_id: batchId },
+    data: { status: result === "PASS" ? "AVAILABLE" : "DISPOSED" },
+  });
+
+  if (result === "PASS") {
+    await tx.inventory.upsert({
+      where: { batch_id: batchId },
+      update: {
+        donated_vol: originalVolume,
+        pasteurized_vol: remainingVolume,
+        available_vol: remainingVolume,
+        updated_by: userId,
+      },
+      create: {
+        batch_id: batchId,
+        donated_vol: originalVolume,
+        pasteurized_vol: remainingVolume,
+        available_vol: remainingVolume,
+        updated_by: userId,
+      },
+    });
+  } else {
+    const existingDisposal = await tx.disposal.findFirst({
+      where: { batch_id: batchId, reason: "POST_LAB_FAILED" },
+    });
+    const disposalData = {
+      disposal_date: testDate,
+      volume: remainingVolume,
+      disposed_by: userId,
+      remarks: remarks ?? null,
+    };
+    if (existingDisposal) {
+      await tx.disposal.update({
+        where: { disposal_id: existingDisposal.disposal_id },
+        data: disposalData,
+      });
+    } else {
+      await tx.disposal.create({
+        data: {
+          batch_id: batchId,
+          reason: "POST_LAB_FAILED",
+          ...disposalData,
+        },
+      });
+    }
+  }
+
+  await tx.supsupTodoDonationWorkflow.update({
+    where: { workflow_id: workflow.workflow_id },
+    data: {
+      post_lab_result: result,
+      post_lab_received_at: testDate,
+      post_lab_notes: remarks ?? null,
+      final_status: result === "PASS" ? "READY_FOR_DISPENSING" : "POST_LAB_FAILED",
+      current_step: result === "PASS" ? "COMPLETED" : "DISPOSED",
+      updated_by: userId,
+    },
+  });
+}
 
 export async function recordLabResult(rawInput: unknown) {
   const parsed = recordLabResultSchema.safeParse(rawInput);
@@ -44,60 +192,66 @@ export async function recordLabResult(rawInput: unknown) {
   });
 
   if (existingResult) {
-    const updated = await db.labResult.update({
-      where: { lab_id: existingResult.lab_id },
-      data: {
+    const testDate = new Date();
+    const updated = await db.$transaction(async (tx) => {
+      const labResult = await tx.labResult.update({
+        where: { lab_id: existingResult.lab_id },
+        data: {
+          result: input.result,
+          colony_count: input.colony_count ?? null,
+          remarks: input.remarks ?? null,
+          test_date: testDate,
+          tested_by: user.user_id,
+        },
+      });
+
+      await syncSupsupWorkflowLabResult({
+        tx,
+        batchId: input.batch_id,
+        stage: input.stage,
         result: input.result,
-        colony_count: input.colony_count ?? null,
-        remarks: input.remarks ?? null,
-        test_date: new Date(),
-        tested_by: user.user_id,
-      },
+        userId: user.user_id,
+        testDate,
+        remarks: input.remarks,
+      });
+
+      await tx.auditLog.create({
+        data: {
+          user_id: user.user_id,
+          action_details: `Updated ${input.stage} lab result for batch ${batch.batch_code} to ${input.result}`,
+        },
+      });
+
+      return labResult;
     });
 
-    await db.auditLog.create({
-      data: {
-        user_id: user.user_id,
-        action_details: `Updated ${input.stage} lab result for batch ${batch.batch_code} to ${input.result}`,
-      },
-    });
-
-    revalidatePath("/dashboard/laboratory");
+    revalidateLabSurfaces();
     return { success: true, data: updated };
   }
 
   const result = await db.$transaction(async (tx) => {
+    const testDate = new Date();
     const labResult = await tx.labResult.create({
       data: {
         batch_id: input.batch_id,
         stage: input.stage,
         result: input.result,
-        test_date: new Date(),
+        test_date: testDate,
         tested_by: user.user_id,
         colony_count: input.colony_count ?? null,
         remarks: input.remarks ?? null,
       },
     });
 
-    if (input.result === "PASS" && input.stage === "PRE_PASTEURIZATION") {
-      await tx.batch.update({
-        where: { batch_id: input.batch_id },
-        data: { status: "TESTING" },
-      });
-    } else if (
-      input.result === "PASS" &&
-      input.stage === "POST_PASTEURIZATION"
-    ) {
-      await tx.batch.update({
-        where: { batch_id: input.batch_id },
-        data: { status: "PASTEURIZED" },
-      });
-    } else if (input.result === "FAIL") {
-      await tx.batch.update({
-        where: { batch_id: input.batch_id },
-        data: { status: "DISPOSED" },
-      });
-    }
+    await syncSupsupWorkflowLabResult({
+      tx,
+      batchId: input.batch_id,
+      stage: input.stage,
+      result: input.result,
+      userId: user.user_id,
+      testDate,
+      remarks: input.remarks,
+    });
 
     await tx.auditLog.create({
       data: {
@@ -109,7 +263,7 @@ export async function recordLabResult(rawInput: unknown) {
     return labResult;
   });
 
-  revalidatePath("/dashboard/laboratory");
+  revalidateLabSurfaces();
   return { success: true, data: result };
 }
 
@@ -184,7 +338,7 @@ export async function updateBatchLabResults(rawInput: unknown) {
     return labResult;
   });
 
-  revalidatePath("/dashboard/laboratory");
+  revalidateLabSurfaces();
   return { success: true, data: result };
 }
 
@@ -306,6 +460,6 @@ export async function bulkUpdateBatchStatus(rawInput: unknown) {
     });
   });
 
-  revalidatePath("/dashboard/laboratory");
+  revalidateLabSurfaces();
   return { success: true, data: { updated: batches.length } };
 }

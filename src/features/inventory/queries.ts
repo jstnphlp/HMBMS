@@ -50,7 +50,7 @@ export async function getInventorySummary(): Promise<InventorySummary> {
   };
 }
 
-export async function getCollectionLogs(limit = 50): Promise<CollectionLogEntry[]> {
+export async function getCollectionLogs(limit = 25): Promise<CollectionLogEntry[]> {
   const collections = await db.collection.findMany({
     take: limit,
     orderBy: { collection_date: "desc" },
@@ -72,7 +72,7 @@ export async function getCollectionLogs(limit = 50): Promise<CollectionLogEntry[
   }));
 }
 
-export async function getDisposalLogs(limit = 50): Promise<DisposalLogEntry[]> {
+export async function getDisposalLogs(limit = 25): Promise<DisposalLogEntry[]> {
   const disposals = await db.disposal.findMany({
     take: limit,
     orderBy: { disposal_date: "desc" },
