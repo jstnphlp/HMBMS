@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/core/ui/table";
 import { ProgramBadge } from "./program-badge";
+import { formatDonorTrackingNo } from "@/core/utils/tracking";
 import { Inbox } from "lucide-react";
 import type { DonorDetail } from "../queries";
 
@@ -66,7 +67,7 @@ export function DonorHistoryModal({
             <span className="font-medium text-foreground">
               {donor.first_name} {donor.last_name}
             </span>{" "}
-            &mdash; D-{donor.donor_id.toString().padStart(4, "0")}
+            &mdash; {formatDonorTrackingNo(donor.donor_id)}
           </DialogDescription>
         </DialogHeader>
 
@@ -144,7 +145,7 @@ export function DonorHistoryModal({
                     className="border-b border-border/50 hover:bg-muted/30"
                   >
                     <TableCell className="py-2 px-3 text-[13px] font-medium text-primary">
-                      CTN-{c.ctn.toString().padStart(4, "0")}
+                      {c.tracking_no ?? `CTN-${c.ctn.toString().padStart(4, "0")}`}
                     </TableCell>
                     <TableCell className="py-2 px-3 text-[13px] text-foreground">
                       {formatDateTime(c.collection_date)}

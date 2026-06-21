@@ -249,7 +249,6 @@ export async function recordRecipientDispensing(rawInput: unknown) {
       return dispensing;
     });
 
-    revalidatePath("/dashboard/recipients");
     revalidatePath("/dashboard/dispensing");
     return { success: true, data: result };
   } catch (err) {

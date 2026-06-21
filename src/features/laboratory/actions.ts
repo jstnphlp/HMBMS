@@ -6,16 +6,24 @@ import {
   recordLabResultSchema,
   updateBatchLabResultsSchema,
   bulkUpdateBatchStatusSchema,
+  saveLabBatchSelectionSchema,
 } from "./schemas";
 import type {
   RecordLabResultInput,
   UpdateBatchLabResultsInput,
   BulkUpdateBatchStatusInput,
+  SaveLabBatchSelectionInput,
 } from "./schemas";
 import { getCurrentUser } from "@/features/auth/actions";
 import type { Prisma } from "@/generated/prisma/client";
+import {
+  getBatchEligibility,
+  getLabBatchTypeMeta,
+  type LabBatchType,
+} from "./batch-eligibility";
 
 type Tx = Prisma.TransactionClient;
+const ACTIVE_COLLECTION_BATCH_STATUSES = ["ACTIVE", "IN_PROGRESS"] as const;
 
 function revalidateLabSurfaces() {
   revalidatePath("/dashboard/laboratory");
@@ -462,4 +470,281 @@ export async function bulkUpdateBatchStatus(rawInput: unknown) {
 
   revalidateLabSurfaces();
   return { success: true, data: { updated: batches.length } };
+}
+
+export async function saveLabBatchSelection(rawInput: unknown) {
+  const parsed = saveLabBatchSelectionSchema.safeParse(rawInput);
+
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const input: SaveLabBatchSelectionInput = parsed.data;
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return { success: false, errors: { _form: ["Not authenticated"] } };
+  }
+
+  const requestedIds = Array.from(new Set(input.batch_ids));
+  const selectedBatches = await db.batch.findMany({
+    where: { batch_id: { in: requestedIds } },
+    include: {
+      collections: {
+        include: {
+          donor: { select: { first_name: true, last_name: true } },
+        },
+      },
+      labResults: {
+        orderBy: { test_date: "desc" },
+        select: {
+          stage: true,
+          result: true,
+          test_date: true,
+          remarks: true,
+        },
+      },
+      supSupTodoWorkflow: {
+        include: {
+          collection: {
+            select: {
+              ctn: true,
+              tracking_no: true,
+              volume: true,
+              program: true,
+              collection_date: true,
+              batch: { select: { batch_code: true, status: true } },
+            },
+          },
+          batch: { select: { batch_code: true, status: true } },
+        },
+      },
+    },
+  });
+
+  if (selectedBatches.length !== requestedIds.length) {
+    return {
+      success: false,
+      errors: {
+        batch_ids: [
+          "Some selected collections are no longer eligible for this batch. Refresh and try again.",
+        ],
+      },
+    };
+  }
+
+  const batchType = input.batch_type as LabBatchType;
+  const selected = selectedBatches.map((batch) => {
+    const prePast = batch.labResults.find(
+      (lr) => lr.stage === "PRE_PASTEURIZATION"
+    );
+    const postPast = batch.labResults.find(
+      (lr) => lr.stage === "POST_PASTEURIZATION"
+    );
+    const collection = batch.collections[0];
+    const donorNames = Array.from(
+      new Set(
+        batch.collections.map(
+          (c) => `${c.donor.first_name} ${c.donor.last_name}`
+        )
+      )
+    );
+
+    return {
+      row_type: "individual" as const,
+      row_id: `individual-${batch.batch_id}`,
+      batch_id: batch.batch_id,
+      batch_code: batch.batch_code,
+      display_id:
+        batch.supSupTodoWorkflow?.tracking_no ??
+        collection?.tracking_no ??
+        batch.batch_code,
+      tracking_no:
+        batch.supSupTodoWorkflow?.tracking_no ?? collection?.tracking_no ?? null,
+      pooling_date: batch.pooling_date,
+      total_volume: batch.total_volume,
+      remaining_volume: batch.remaining_volume,
+      status: batch.status,
+      program: collection?.program ?? null,
+      donor_name:
+        donorNames.length === 0
+          ? "--"
+          : donorNames.length === 1
+            ? donorNames[0]
+            : "Multiple donors",
+      collection_count: batch.collections.length,
+      pre_pasteurization: prePast
+        ? {
+            result: prePast.result,
+            test_date: prePast.test_date,
+            remarks: prePast.remarks,
+          }
+        : null,
+      post_pasteurization: postPast
+        ? {
+            result: postPast.result,
+            test_date: postPast.test_date,
+            remarks: postPast.remarks,
+          }
+        : null,
+      supSupTodoWorkflow: batch.supSupTodoWorkflow
+        ? { ...batch.supSupTodoWorkflow, sample_no: batch.supSupTodoWorkflow.sample_sequence }
+        : null,
+    };
+  });
+
+  const invalid = selected.filter(
+    (batch) => !getBatchEligibility(batch, batchType)
+  );
+
+  if (invalid.length > 0) {
+    return {
+      success: false,
+      errors: {
+        batch_ids: [
+          "Some selected collections are no longer eligible for this batch. Refresh and try again.",
+        ],
+      },
+    };
+  }
+
+  const collectionIds = selectedBatches.flatMap((batch) =>
+    batch.collections.map((collection) => collection.ctn)
+  );
+
+  if (collectionIds.length !== requestedIds.length) {
+    return {
+      success: false,
+      errors: {
+        batch_ids: [
+          "Every selected row must be an individual CTN with a linked collection.",
+        ],
+      },
+    };
+  }
+
+  const conflict = await db.collectionBatchItem.findFirst({
+    where: {
+      collection_id: { in: collectionIds },
+      batch: {
+        batch_type: batchType,
+        status: { in: [...ACTIVE_COLLECTION_BATCH_STATUSES] },
+      },
+    },
+    include: { batch: true },
+  });
+
+  if (conflict) {
+    return {
+      success: false,
+      errors: {
+        batch_ids: [
+          `${conflict.ctn} is already assigned to active batch ${conflict.batch.batch_no}.`,
+        ],
+      },
+    };
+  }
+
+  const meta = getLabBatchTypeMeta(batchType);
+  const prefix = `BATCH-${meta.auditPrefix}`;
+  let createdBatch:
+    | { id: number; batch_no: string; itemCount: number }
+    | null = null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      createdBatch = await db.$transaction(async (tx) => {
+        const retryConflict = await tx.collectionBatchItem.findFirst({
+          where: {
+            collection_id: { in: collectionIds },
+            batch: {
+              batch_type: batchType,
+              status: { in: [...ACTIVE_COLLECTION_BATCH_STATUSES] },
+            },
+          },
+          include: { batch: true },
+        });
+
+        if (retryConflict) {
+          throw new Error(
+            `${retryConflict.ctn} is already assigned to active batch ${retryConflict.batch.batch_no}.`
+          );
+        }
+
+        const latest = await tx.collectionBatch.findFirst({
+          where: { batch_type: batchType },
+          orderBy: { id: "desc" },
+          select: { batch_no: true },
+        });
+        const latestSequence = latest?.batch_no.match(/-(\d{4})$/)?.[1];
+        const nextSequence = (latestSequence ? Number(latestSequence) : 0) + 1;
+        const batchNo = `${prefix}-${String(nextSequence).padStart(4, "0")}`;
+
+        const batch = await tx.collectionBatch.create({
+          data: {
+            batch_no: batchNo,
+            batch_type: batchType,
+            status: "ACTIVE",
+            created_by: user.user_id,
+            notes: input.notes ?? null,
+            items: {
+              create: selectedBatches.flatMap((processingBatch) =>
+                processingBatch.collections.map((collection) => ({
+                  collection_id: collection.ctn,
+                  workflow_id:
+                    processingBatch.supSupTodoWorkflow?.workflow_id ?? null,
+                  ctn:
+                    collection.tracking_no ??
+                    processingBatch.supSupTodoWorkflow?.tracking_no ??
+                    `CTN-${collection.ctn.toString().padStart(4, "0")}`,
+                }))
+              ),
+            },
+          },
+          select: { id: true, batch_no: true, _count: { select: { items: true } } },
+        });
+
+        const ctns = selected
+          .map((batch) => batch.tracking_no ?? batch.batch_code)
+          .join(", ");
+
+        await tx.auditLog.create({
+          data: {
+            user_id: user.user_id,
+            action_details: `Created ${meta.label} saved batch ${batch.batch_no} for ${selected.length} collection(s): ${ctns}${input.notes ? ` - ${input.notes}` : ""}`,
+          },
+        });
+
+        return {
+          id: batch.id,
+          batch_no: batch.batch_no,
+          itemCount: batch._count.items,
+        };
+      });
+      break;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("already assigned to active batch")) {
+        return { success: false, errors: { batch_ids: [message] } };
+      }
+      if (attempt === 2) throw error;
+    }
+  }
+
+  if (!createdBatch) {
+    return {
+      success: false,
+      errors: { batch_ids: ["Unable to create batch. Try again."] },
+    };
+  }
+
+  revalidateLabSurfaces();
+  return {
+    success: true,
+    data: {
+      batch_action_id: createdBatch.batch_no,
+      batch_no: createdBatch.batch_no,
+      selected: createdBatch.itemCount,
+    },
+  };
 }

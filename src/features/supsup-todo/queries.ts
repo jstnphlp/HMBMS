@@ -14,6 +14,9 @@ export type DonorEligibilitySummary = {
 export type SupsupTodoWorkflowSummary = {
   workflow_id: number;
   donor_id: number;
+  program: string;
+  tracking_no: string;
+  sample_sequence: number;
   ctn: number | null;
   batch_id: number | null;
   sample_no: number;
@@ -27,6 +30,7 @@ export type SupsupTodoWorkflowSummary = {
   updated_at: Date;
   collection: {
     ctn: number;
+    tracking_no: string | null;
     volume: number;
     program: string;
     collection_date: Date;
@@ -91,6 +95,7 @@ export async function getDonorSupsupTodoSummary(donorId: number): Promise<{
         collection: {
           select: {
             ctn: true,
+            tracking_no: true,
             volume: true,
             program: true,
             collection_date: true,
@@ -120,6 +125,7 @@ export async function getDonationWorkflowById(
       collection: {
         select: {
           ctn: true,
+          tracking_no: true,
           volume: true,
           program: true,
           collection_date: true,

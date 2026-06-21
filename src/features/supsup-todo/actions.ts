@@ -1,6 +1,9 @@
 "use server";
 
 import { db } from "@/core/db";
+import type { ProgramValue } from "@/core/utils/program";
+import { formatProgram } from "@/core/utils/program";
+import { formatCollectionTrackingNo } from "@/core/utils/tracking";
 import { mapPrismaError } from "@/core/utils/prisma-error";
 import { getCurrentUser } from "@/features/auth/actions";
 import { revalidatePath } from "next/cache";
@@ -74,7 +77,7 @@ async function getOpenWorkflow(workflowId: number) {
   return workflow;
 }
 
-async function validateDonorCanStartSupsupTodo(donorId: number) {
+async function validateDonorCanStartDonationWorkflow(donorId: number) {
   const eligibility = await db.donorEligibility.findUnique({
     where: { donor_id: donorId },
     select: {
@@ -84,15 +87,15 @@ async function validateDonorCanStartSupsupTodo(donorId: number) {
   });
 
   if (eligibility?.screening_result === "FAIL") {
-    return "This donor failed screening and cannot start Supsup Todo.";
+    return "Complete Screening and Interview & Consent before starting a donation workflow.";
   }
 
   if (eligibility?.screening_result !== "PASS") {
-    return "Screening must be passed before starting Supsup Todo.";
+    return "Complete Screening and Interview & Consent before starting a donation workflow.";
   }
 
   if (!eligibility.consent_signed) {
-    return "Interview and consent must be completed before starting Supsup Todo.";
+    return "Complete Screening and Interview & Consent before starting a donation workflow.";
   }
 
   return null;
@@ -190,28 +193,43 @@ export async function updateDonorConsent(
   }
 }
 
-export async function startSupsupTodoDonation(
-  donorId: number
+export async function startDonationWorkflow(
+  input: { donorId: number; program: ProgramValue }
 ): Promise<ActionResult> {
   try {
     const user = await requireUser();
-    const eligibilityError = await validateDonorCanStartSupsupTodo(donorId);
+    const eligibilityError = await validateDonorCanStartDonationWorkflow(input.donorId);
 
     if (eligibilityError) {
       return { success: false, errors: { _form: [eligibilityError] } };
     }
 
-    const data = await db.supsupTodoDonationWorkflow.create({
-      data: {
-        donor_id: donorId,
-        created_by: user.user_id,
-      },
+    const data = await db.$transaction(async (tx) => {
+      const [latest, collectionCount] = await Promise.all([
+        tx.supsupTodoDonationWorkflow.aggregate({
+          where: { donor_id: input.donorId },
+          _max: { sample_sequence: true },
+        }),
+        tx.collection.count({ where: { donor_id: input.donorId } }),
+      ]);
+      const sampleSequence =
+        Math.max(latest._max.sample_sequence ?? 0, collectionCount) + 1;
+
+      return tx.supsupTodoDonationWorkflow.create({
+        data: {
+          donor_id: input.donorId,
+          program: input.program,
+          sample_sequence: sampleSequence,
+          tracking_no: formatCollectionTrackingNo(input.donorId, sampleSequence),
+          created_by: user.user_id,
+        },
+      });
     });
 
     await db.auditLog.create({
       data: {
         user_id: user.user_id,
-        action_details: `Started Supsup Todo donation workflow #${data.workflow_id} for donor #${donorId}`,
+        action_details: `Started ${formatProgram(input.program)} donation workflow #${data.workflow_id} for donor #${input.donorId}`,
       },
     });
 
@@ -220,6 +238,12 @@ export async function startSupsupTodoDonation(
   } catch (err) {
     return { success: false, errors: { _form: [mapPrismaError(err)] } };
   }
+}
+
+export async function startSupsupTodoDonation(
+  donorId: number
+): Promise<ActionResult> {
+  return startDonationWorkflow({ donorId, program: "SUPSUP_TODO" });
 }
 
 export async function updateLactationExtraction(
@@ -242,7 +266,7 @@ export async function updateLactationExtraction(
       if (!batchId) {
         const batch = await tx.batch.create({
           data: {
-            batch_code: `ST-${workflow.workflow_id}-${Date.now()}`,
+            batch_code: workflow.tracking_no,
             pooling_date: parsed.data.extraction_completed_at,
             total_volume: parsed.data.extracted_volume,
             remaining_volume: parsed.data.extracted_volume,
@@ -275,8 +299,9 @@ export async function updateLactationExtraction(
         const collection = await tx.collection.create({
           data: {
             donor_id: workflow.donor_id,
+            tracking_no: workflow.tracking_no,
             recorded_by: user.user_id,
-            program: "SUPSUP_TODO",
+            program: workflow.program,
             collection_date: parsed.data.extraction_completed_at,
             volume: parsed.data.extracted_volume,
             remarks: parsed.data.staff_notes ?? null,
@@ -290,6 +315,7 @@ export async function updateLactationExtraction(
         await tx.collection.update({
           where: { ctn },
           data: {
+            tracking_no: workflow.tracking_no,
             collection_date: parsed.data.extraction_completed_at,
             volume: parsed.data.extracted_volume,
             remarks: parsed.data.staff_notes ?? null,

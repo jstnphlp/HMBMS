@@ -33,6 +33,19 @@ enum BatchStatus {
   DISPOSED
 }
 
+enum CollectionBatchType {
+  PRE_PSTR
+  PSTR
+  POST_PSTR
+}
+
+enum CollectionBatchStatus {
+  ACTIVE
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
 enum LabStage {
   PRE_PASTEURIZATION
   POST_PASTEURIZATION
@@ -86,6 +99,40 @@ enum SupsupTodoWorkflowStep {
   DISPOSED
 }
 
+enum MilkRequestStatus {
+  DRAFT
+  INCOMPLETE
+  QUEUED
+  READY_FOR_RELEASE
+  PARTIALLY_FULFILLED
+  RELEASED
+  CANCELLED
+}
+
+enum MilkRequestPriority {
+  URGENT
+  HIGH
+  NORMAL
+  LOW
+}
+
+enum MilkRequestPaymentStatus {
+  NOT_REQUIRED
+  UNPAID
+  PARTIAL
+  PAID
+  WAIVED
+}
+
+enum MilkRequestNotificationStatus {
+  NOT_READY
+  READY_FOR_PICKUP
+  STAFF_NOTED
+  MANUALLY_NOTIFIED
+}
+
+
+
 model User {
   user_id    Int      @id @default(autoincrement())
   auth_id    String   @unique
@@ -108,6 +155,10 @@ model User {
   eligibilityUpdates DonorEligibility[] @relation("EligibilityUpdatedBy")
   supSupTodoWorkflows SupsupTodoDonationWorkflow[] @relation("SupsupWorkflowCreatedBy")
   supSupTodoWorkflowUpdates SupsupTodoDonationWorkflow[] @relation("SupsupWorkflowUpdatedBy")
+  collectionBatches CollectionBatch[] @relation("CollectionBatchCreatedBy")
+  createdMilkRequests MilkRequest[] @relation("MilkRequestCreatedBy")
+  releasedMilkRequests MilkRequest[] @relation("MilkRequestReleasedBy")
+  milkRequestAllocations MilkRequestAllocation[] @relation("MilkRequestAllocationCreatedBy")
 }
 
 model Donor {
@@ -146,16 +197,47 @@ model Donor {
 
 model Beneficiary {
   beneficiary_id Int     @id @default(autoincrement())
+  recipient_id   Int?
   name           String
   contact_no     String
+  birthdate      DateTime?
+  sex            String?
+  birth_weight   String?
+  gestational_age String?
+  medical_condition String?
+  notes          String?
   remarks        String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @default(now()) @updatedAt
 
-  dispensings Dispensing[]
-  sms         SMS[]
+  recipient    Recipient?    @relation(fields: [recipient_id], references: [recipient_id])
+  milkRequests MilkRequest[]
+  dispensings  Dispensing[]
+  sms          SMS[]
+
+  @@index([recipient_id])
+}
+
+model Recipient {
+  recipient_id                 Int      @id @default(autoincrement())
+  first_name                   String
+  middle_name                  String?
+  last_name                    String
+  contact_no                   String
+  address                      String
+  relationship_to_beneficiary  String
+  notes                        String?
+  status                       String   @default("ACTIVE")
+  created_at                   DateTime @default(now())
+  updated_at                   DateTime @updatedAt
+
+  beneficiaries Beneficiary[]
+  milkRequests  MilkRequest[]
 }
 
 model Collection {
   ctn             Int              @id @default(autoincrement())
+  tracking_no     String?          @unique
   donor_id        Int
   recorded_by     Int
   program         Program
@@ -176,6 +258,7 @@ model Collection {
   recorder User   @relation("RecordedBy", fields: [recorded_by], references: [user_id])
   batch    Batch? @relation(fields: [batch_id], references: [batch_id])
   supSupTodoWorkflow SupsupTodoDonationWorkflow?
+  collectionBatchItems CollectionBatchItem[]
 }
 
 model Batch {
@@ -195,6 +278,7 @@ model Batch {
   dispensings Dispensing[]
   disposals   Disposal[]
   supSupTodoWorkflow SupsupTodoDonationWorkflow?
+  milkRequestAllocations MilkRequestAllocation[]
 }
 
 model DonorEligibility {
@@ -216,6 +300,9 @@ model DonorEligibility {
 model SupsupTodoDonationWorkflow {
   workflow_id       Int                    @id @default(autoincrement())
   donor_id          Int
+  program           Program                @default(SUPSUP_TODO)
+  tracking_no       String                 @unique
+  sample_sequence   Int
   ctn               Int?                   @unique
   batch_id          Int?                   @unique
   final_status      SupsupTodoWorkflowStatus @default(IN_PROGRESS)
@@ -268,6 +355,42 @@ model SupsupTodoDonationWorkflow {
   batch      Batch?      @relation(fields: [batch_id], references: [batch_id])
   creator    User        @relation("SupsupWorkflowCreatedBy", fields: [created_by], references: [user_id])
   updater    User?       @relation("SupsupWorkflowUpdatedBy", fields: [updated_by], references: [user_id])
+  collectionBatchItems CollectionBatchItem[]
+
+  @@unique([donor_id, sample_sequence])
+}
+
+model CollectionBatch {
+  id         Int                   @id @default(autoincrement())
+  batch_no   String                @unique
+  batch_type CollectionBatchType
+  status     CollectionBatchStatus @default(ACTIVE)
+  created_by Int
+  created_at DateTime              @default(now())
+  updated_at DateTime              @updatedAt
+  notes      String?
+
+  creator User                  @relation("CollectionBatchCreatedBy", fields: [created_by], references: [user_id])
+  items   CollectionBatchItem[]
+
+  @@index([batch_type, status])
+}
+
+model CollectionBatchItem {
+  id            Int      @id @default(autoincrement())
+  batch_id      Int
+  collection_id Int
+  workflow_id   Int?
+  ctn           String
+  created_at    DateTime @default(now())
+
+  batch      CollectionBatch @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  collection Collection      @relation(fields: [collection_id], references: [ctn])
+  workflow   SupsupTodoDonationWorkflow? @relation(fields: [workflow_id], references: [workflow_id])
+
+  @@unique([batch_id, collection_id])
+  @@index([collection_id])
+  @@index([workflow_id])
 }
 
 model LabResult {
@@ -297,20 +420,94 @@ model Inventory {
   updater User  @relation(fields: [updated_by], references: [user_id])
 }
 
+model MilkRequest {
+  request_id            Int                           @id @default(autoincrement())
+  request_no            String                        @unique
+  recipient_id          Int
+  beneficiary_id        Int
+  status                MilkRequestStatus             @default(DRAFT)
+  priority              MilkRequestPriority           @default(NORMAL)
+  requested_volume      Float
+  allocated_volume      Float                         @default(0)
+  released_volume       Float                         @default(0)
+  reason                String
+  needed_by             DateTime?
+  payment_status        MilkRequestPaymentStatus      @default(UNPAID)
+  deposit_amount        Float?
+  price_per_ml          Float?
+  total_amount          Float?
+  amount_paid           Float?
+  payment_notes         String?
+  notification_status   MilkRequestNotificationStatus @default(NOT_READY)
+  profile_complete      Boolean                       @default(false)
+  beneficiary_complete  Boolean                       @default(false)
+  reason_provided       Boolean                       @default(false)
+  volume_entered        Boolean                       @default(false)
+  staff_approved        Boolean                       @default(false)
+  payment_reviewed      Boolean                       @default(false)
+  remarks               String?
+  cancellation_reason   String?
+  cancelled_at          DateTime?
+  created_by            Int
+  created_at            DateTime                      @default(now())
+  updated_at            DateTime                      @updatedAt
+  released_by           Int?
+  released_at           DateTime?
+
+  recipient    Recipient               @relation(fields: [recipient_id], references: [recipient_id])
+  beneficiary  Beneficiary             @relation(fields: [beneficiary_id], references: [beneficiary_id])
+  creator      User                    @relation("MilkRequestCreatedBy", fields: [created_by], references: [user_id])
+  releaser     User?                   @relation("MilkRequestReleasedBy", fields: [released_by], references: [user_id])
+  allocations  MilkRequestAllocation[]
+  dispensings  Dispensing[]
+
+  @@index([recipient_id])
+  @@index([beneficiary_id])
+  @@index([status, priority, created_at])
+  @@index([payment_status])
+}
+
+model MilkRequestAllocation {
+  allocation_id   Int      @id @default(autoincrement())
+  request_id      Int
+  batch_id        Int
+  volume          Float
+  released_volume Float    @default(0)
+  status          String   @default("ALLOCATED")
+  allocated_by    Int
+  allocated_at    DateTime @default(now())
+  released_at     DateTime?
+
+  request   MilkRequest @relation(fields: [request_id], references: [request_id], onDelete: Cascade)
+  batch     Batch       @relation(fields: [batch_id], references: [batch_id])
+  allocator User        @relation("MilkRequestAllocationCreatedBy", fields: [allocated_by], references: [user_id])
+
+  @@unique([request_id, batch_id])
+  @@index([batch_id])
+  @@index([status])
+}
+
 model Dispensing {
   dis_id          Int      @id @default(autoincrement())
   batch_id        Int
   beneficiary_id  Int
+  milk_request_id Int?
   dispensed_by    Int
   dispensing_date DateTime
   volume          Float
   price           Float
   total           Float
+  payment_status  MilkRequestPaymentStatus?
+  amount_paid     Float?
+  source_summary  String?
   remarks         String?
 
   batch       Batch       @relation(fields: [batch_id], references: [batch_id])
   beneficiary Beneficiary @relation(fields: [beneficiary_id], references: [beneficiary_id])
+  milkRequest MilkRequest? @relation(fields: [milk_request_id], references: [request_id])
   dispenser   User        @relation(fields: [dispensed_by], references: [user_id])
+
+  @@index([milk_request_id])
 }
 
 model Disposal {

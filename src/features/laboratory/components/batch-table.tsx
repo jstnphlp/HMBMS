@@ -21,8 +21,13 @@ import {
 } from "@/core/ui/select";
 import { Badge } from "@/core/ui/badge";
 import { cn } from "@/core/utils/cn";
+import { formatProgram } from "@/core/utils/program";
 import { Search, Filter, ChevronLeft, ChevronRight } from "lucide-react";
 import type { LabBatchSummary } from "../queries";
+import {
+  getBatchEligibility,
+  type LabBatchType,
+} from "../batch-eligibility";
 
 interface BatchTableProps {
   batches: LabBatchSummary[];
@@ -31,17 +36,13 @@ interface BatchTableProps {
   selectedIds: Set<number>;
   onSelectionChange: (ids: Set<number>) => void;
   onFilteredBatchesChange?: (batches: LabBatchSummary[]) => void;
+  isBatchMode: boolean;
+  batchType: LabBatchType;
+  onEnterBatchMode: () => void;
+  onExitBatchMode: () => void;
 }
 
 const PAGE_SIZE = 15;
-
-function formatProgram(program: string | null): string {
-  if (!program) return "--";
-  return program
-    .split("_")
-    .map((w) => w[0] + w.slice(1).toLowerCase())
-    .join(" ");
-}
 
 function prePasteurStatus(batch: LabBatchSummary) {
   const workflow = batch.supSupTodoWorkflow;
@@ -134,8 +135,29 @@ function formatSearchDate(date: Date) {
 
 function collectionSearchText(batch: LabBatchSummary) {
   const workflow = batch.supSupTodoWorkflow;
+  const trackingNo = batch.tracking_no ?? workflow?.tracking_no ?? "";
+  const childText =
+    batch.collection_batch_items
+      ?.map((item) =>
+        [
+          item.tracking_no,
+          item.display_id,
+          item.batch_code,
+          item.donor_name,
+          item.program,
+          formatProgram(item.program),
+          collectionStatusLabel(item),
+        ].join(" ")
+      )
+      .join(" ") ?? "";
   const values = [
+    trackingNo,
+    batch.display_id ?? "",
     batch.batch_code,
+    batch.collection_batch_no ?? "",
+    batch.collection_batch_type ?? "",
+    batch.collection_batch_status ?? "",
+    childText,
     workflow ? `sample ${workflow.sample_no}` : "",
     workflow ? `sample #${workflow.sample_no}` : "",
     workflow ? String(workflow.sample_no) : "",
@@ -169,6 +191,10 @@ export function BatchTable({
   selectedIds,
   onSelectionChange,
   onFilteredBatchesChange,
+  isBatchMode,
+  batchType,
+  onEnterBatchMode,
+  onExitBatchMode,
 }: BatchTableProps) {
   const [search, setSearch] = useState("");
   const [programFilter, setProgramFilter] = useState<string>("all");
@@ -176,6 +202,8 @@ export function BatchTable({
 
   const filtered = useMemo(() => {
     return batches.filter((batch) => {
+      const matchesBatchType =
+        !isBatchMode || getBatchEligibility(batch, batchType);
       const searchableText = collectionSearchText(batch);
       const normalizedSearch = search.trim().toLowerCase();
       const matchesSearch =
@@ -184,9 +212,9 @@ export function BatchTable({
       const matchesProgram =
         programFilter === "all" || batch.program === programFilter;
 
-      return matchesSearch && matchesProgram;
+      return matchesBatchType && matchesSearch && matchesProgram;
     });
-  }, [batches, search, programFilter]);
+  }, [batches, search, programFilter, isBatchMode, batchType]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -224,6 +252,15 @@ export function BatchTable({
     })());
   }, [selectedIds, onSelectionChange]);
 
+  const handleRowClick = useCallback((batchId: number) => {
+    if (isBatchMode) {
+      toggleSelect(batchId);
+      return;
+    }
+
+    onSelectBatch(batchId);
+  }, [isBatchMode, onSelectBatch, toggleSelect]);
+
   function formatDate(date: Date) {
     return new Intl.DateTimeFormat("en-US", {
       month: "short",
@@ -248,8 +285,21 @@ export function BatchTable({
               {selectedIds.size} selected
             </Badge>
           )}
+          {isBatchMode && selectedIds.size > 0 && (
+            <span className="text-[11px] text-muted-foreground">
+              Selected items can stay selected outside the current search.
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant={isBatchMode ? "outline" : "default"}
+            size="sm"
+            className="h-8 text-xs"
+            onClick={isBatchMode ? onExitBatchMode : onEnterBatchMode}
+          >
+            {isBatchMode ? "Exit Batch" : "Batch"}
+          </Button>
           <div className="relative max-w-[200px]">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground size-3.5" />
             <Input
@@ -295,15 +345,20 @@ export function BatchTable({
         <Table>
           <TableHeader className="sticky top-0 bg-muted z-10 border-b border-border">
             <TableRow className="border-b border-border hover:bg-transparent">
-              <TableHead className="w-10 py-2 px-3">
-                <Checkbox
-                  checked={isAllPageSelected}
-                  onCheckedChange={toggleSelectAll}
-                  aria-label="Select all"
-                />
+              {isBatchMode && (
+                <TableHead className="w-10 py-2 px-3">
+                  <Checkbox
+                    checked={isAllPageSelected}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Select all visible eligible collections"
+                  />
+                </TableHead>
+              )}
+              <TableHead className="py-2 px-3 text-center text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
+                ID
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
-                Batch ID
+                Type
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
                 Donor Name
@@ -332,27 +387,45 @@ export function BatchTable({
             {paginated.map((batch) => {
               const isSelected = selectedBatchId === batch.batch_id;
               const isChecked = selectedIds.has(batch.batch_id);
+              const isSavedBatch = batch.row_type === "collection_batch";
+              const displayId = batch.display_id ?? batch.tracking_no ?? batch.batch_code;
               return (
                 <TableRow
                   key={batch.batch_id}
-                  onClick={() => onSelectBatch(batch.batch_id)}
+                  onClick={() => handleRowClick(batch.batch_id)}
                   className={cn(
                     "cursor-pointer transition-colors border-b border-border/50",
-                    isSelected
+                    isBatchMode && isChecked
+                      ? "bg-primary/10"
+                      : isSelected
                       ? "bg-primary/5"
                       : "hover:bg-muted/50"
                   )}
                 >
-                  <TableCell className="w-10 py-2.5 px-3">
-                    <Checkbox
-                      checked={isChecked}
-                      onCheckedChange={() => toggleSelect(batch.batch_id)}
-                      onClick={(e) => e.stopPropagation()}
-                      aria-label={`Select batch ${batch.batch_code}`}
-                    />
+                  {isBatchMode && (
+                    <TableCell className="w-10 py-2.5 px-3">
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={() => toggleSelect(batch.batch_id)}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Select ${batch.tracking_no ?? batch.batch_code}`}
+                      />
+                    </TableCell>
+                  )}
+                  <TableCell className="py-2.5 px-3 text-center text-[13px] font-semibold text-primary">
+                    {displayId}
                   </TableCell>
-                  <TableCell className="py-2.5 px-3 text-[13px] font-semibold text-primary">
-                    {batch.batch_code}
+                  <TableCell className="py-2.5 px-3">
+                    <Badge
+                      className={cn(
+                        "rounded border px-2 py-0.5 text-[10px] font-semibold",
+                        isSavedBatch
+                          ? "border-primary/30 bg-primary/10 text-primary"
+                          : "border-border bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {isSavedBatch ? "Batch" : "Individual"}
+                    </Badge>
                   </TableCell>
                   <TableCell className="py-2.5 px-3 text-[13px] text-foreground">
                     {batch.donor_name}
@@ -361,7 +434,13 @@ export function BatchTable({
                     {formatDate(batch.pooling_date)}
                   </TableCell>
                   <TableCell className="py-2.5 px-3 text-[13px] text-foreground">
-                    {formatProgram(batch.program)}
+                    {isSavedBatch
+                      ? batch.collection_batch_type === "PRE_PSTR"
+                        ? "PRE-PSTR Lab Test"
+                        : batch.collection_batch_type === "PSTR"
+                          ? "PSTR"
+                          : "POST-PSTR Lab Test"
+                      : formatProgram(batch.program)}
                   </TableCell>
                   <TableCell className="py-2.5 px-3 text-center">
                     <ProcessStatusBadge label={prePasteurStatus(batch)} />
@@ -370,7 +449,13 @@ export function BatchTable({
                     <ProcessStatusBadge label={postPasteurStatus(batch)} />
                   </TableCell>
                   <TableCell className="py-2.5 px-3">
-                    <ProcessStatusBadge label={collectionStatusLabel(batch)} />
+                    <ProcessStatusBadge
+                      label={
+                        isSavedBatch
+                          ? batch.collection_batch_status ?? "In Progress"
+                          : collectionStatusLabel(batch)
+                      }
+                    />
                   </TableCell>
                   <TableCell className="py-2.5 px-3 text-[13px] font-semibold text-foreground text-right tabular-nums">
                     {batch.remaining_volume.toLocaleString()}
@@ -381,10 +466,12 @@ export function BatchTable({
             {paginated.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={isBatchMode ? 10 : 9}
                   className="py-12 text-center text-muted-foreground text-sm"
                 >
-                  No collections found matching your criteria.
+                  {isBatchMode
+                    ? "No eligible collections for this batch type."
+                    : "No collections found matching your criteria."}
                 </TableCell>
               </TableRow>
             )}

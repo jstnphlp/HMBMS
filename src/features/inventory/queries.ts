@@ -1,6 +1,7 @@
 "use server";
 
 import { db } from "@/core/db";
+import { formatDonorTrackingNo } from "@/core/utils/tracking";
 
 export type InventorySummary = {
   totalStockMl: number;
@@ -12,6 +13,7 @@ export type InventorySummary = {
 
 export type CollectionLogEntry = {
   ctn: number;
+  trackingNo: string | null;
   collectionDate: string;
   donorId: string;
   donorName: string;
@@ -62,8 +64,9 @@ export async function getCollectionLogs(limit = 25): Promise<CollectionLogEntry[
 
   return collections.map((c) => ({
     ctn: c.ctn,
+    trackingNo: c.tracking_no,
     collectionDate: c.collection_date.toISOString(),
-    donorId: `DNR-${String(c.donor.donor_id).padStart(4, "0")}`,
+    donorId: formatDonorTrackingNo(c.donor.donor_id),
     donorName: `${c.donor.first_name} ${c.donor.last_name}`,
     program: c.program,
     volume: c.volume,

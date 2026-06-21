@@ -78,8 +78,8 @@ export function CollectionLogsTable({ logs }: CollectionLogsTableProps) {
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
             <TableRow className="border-b border-border hover:bg-muted/80">
-              <TableHead className="px-4 text-xs tracking-wider text-muted-foreground uppercase">
-                Col ID
+              <TableHead className="px-4 text-center text-xs tracking-wider text-muted-foreground uppercase">
+                CTN
               </TableHead>
               <TableHead className="px-4 text-xs tracking-wider text-muted-foreground uppercase">
                 Date / Time
@@ -116,8 +116,8 @@ export function CollectionLogsTable({ logs }: CollectionLogsTableProps) {
                       i % 2 === 1 && "bg-card"
                     )}
                   >
-                    <TableCell className="px-4 font-mono text-xs font-medium text-primary">
-                      COL-{String(log.ctn).padStart(4, "0")}
+                    <TableCell className="px-4 text-center font-mono text-xs font-medium text-primary">
+                      {log.trackingNo ?? `CTN-${String(log.ctn).padStart(4, "0")}`}
                     </TableCell>
                     <TableCell className="px-4 text-muted-foreground">
                       {formatDate(log.collectionDate)}

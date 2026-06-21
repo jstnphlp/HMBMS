@@ -12,14 +12,13 @@ import {
 } from "@/core/ui/dialog";
 import { Label } from "@/core/ui/label";
 import { cn } from "@/core/utils/cn";
+import { formatProgram, type ProgramValue } from "@/core/utils/program";
 import { getSupsupTodoStartBlockReason } from "@/features/supsup-todo/eligibility";
-import { startSupsupTodoDonation } from "@/features/supsup-todo/actions";
+import { startDonationWorkflow } from "@/features/supsup-todo/actions";
 import { Droplets, Loader2 } from "lucide-react";
 import type { DonorDetail } from "../queries";
 
-type WorkflowProgram = "SUPSUP_TODO" | "MILKY_WAY" | "MOMS_ACT";
-
-const PROGRAM_OPTIONS: { value: WorkflowProgram; label: string }[] = [
+const PROGRAM_OPTIONS: { value: ProgramValue; label: string }[] = [
   { value: "SUPSUP_TODO", label: "Supsup Todo" },
   { value: "MILKY_WAY", label: "Milky Way" },
   { value: "MOMS_ACT", label: "Mom's Act" },
@@ -45,39 +44,27 @@ export function StartWorkflowDialog({
   size = "sm",
 }: StartWorkflowDialogProps) {
   const [open, setOpen] = useState(false);
-  const [program, setProgram] = useState<WorkflowProgram>("SUPSUP_TODO");
+  const [program, setProgram] = useState<ProgramValue>("SUPSUP_TODO");
   const [isPending, startTransition] = useTransition();
   const startBlockReason = getSupsupTodoStartBlockReason(eligibility);
   const isInactive = donorStatus === "INACTIVE";
 
   function handleContinue() {
-    if (program === "MILKY_WAY") {
-      toast.info("Milky Way workflow is not yet implemented.");
-      setOpen(false);
-      return;
-    }
-
-    if (program === "MOMS_ACT") {
-      toast.info("Mom's Act workflow is not yet implemented.");
-      setOpen(false);
-      return;
-    }
-
     if (startBlockReason) {
       toast.warning(startBlockReason);
       return;
     }
 
     startTransition(async () => {
-      const result = await startSupsupTodoDonation(donorId);
+      const result = await startDonationWorkflow({ donorId, program });
 
       if (result.success) {
-        toast.success("Supsup Todo donation workflow started.");
+        toast.success(`${formatProgram(program)} donation workflow started.`);
         setOpen(false);
         await onStarted?.();
       } else {
         const firstError = Object.values(result.errors).flat()[0];
-        toast.error(firstError ?? "Failed to start Supsup Todo donation.");
+        toast.error(firstError ?? "Failed to start donation workflow.");
       }
     });
   }
@@ -134,7 +121,7 @@ export function StartWorkflowDialog({
               </Label>
             ))}
           </div>
-          {program === "SUPSUP_TODO" && startBlockReason ? (
+          {startBlockReason ? (
             <p className="rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
               {startBlockReason}
             </p>

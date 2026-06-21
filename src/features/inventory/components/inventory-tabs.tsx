@@ -3,6 +3,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/core/ui/tabs";
 import { Card, CardContent } from "@/core/ui/card";
 import { Badge } from "@/core/ui/badge";
+import { formatProgram } from "@/core/utils/program";
 import { Droplets, Trash2, Activity } from "lucide-react";
 import { CollectionLogsTable } from "./collection-logs-table";
 import { DisposalLogsTable } from "./disposal-logs-table";
@@ -79,10 +80,10 @@ export function InventoryTabs({ collections, disposals }: InventoryTabsProps) {
                     >
                       <div className="flex flex-col">
                         <span className="font-mono text-xs font-medium text-primary">
-                          COL-{String(c.ctn).padStart(4, "0")}
+                          {c.trackingNo ?? `CTN-${String(c.ctn).padStart(4, "0")}`}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          {c.donorName} &middot; {c.program.replace("_", " ")}
+                          {c.donorName} &middot; {formatProgram(c.program)}
                         </span>
                       </div>
                       <div className="flex items-center gap-3">

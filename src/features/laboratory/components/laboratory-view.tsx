@@ -1,11 +1,17 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Tabs, TabsList, TabsTrigger } from "@/core/ui/tabs";
 import { Badge } from "@/core/ui/badge";
 import { BatchTable } from "./batch-table";
 import { BatchDetailPanel } from "./batch-detail-panel";
 import type { LabBatchSummary, LabBatchDetail } from "../queries";
+import { toast } from "sonner";
+import {
+  getBatchEligibility,
+  type LabBatchType,
+} from "../batch-eligibility";
 
 interface LaboratoryViewProps {
   batches: LabBatchSummary[];
@@ -26,6 +32,7 @@ export function LaboratoryView({
   batches,
   initialBatchDetail,
 }: LaboratoryViewProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<StatusTab>("all");
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(
     initialBatchDetail?.batch_id ?? null
@@ -37,6 +44,8 @@ export function LaboratoryView({
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [visibleBatches, setVisibleBatches] = useState<LabBatchSummary[]>(batches);
   const [isDetailClosed, setIsDetailClosed] = useState(false);
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [batchType, setBatchType] = useState<LabBatchType>("PRE_PSTR");
 
   const filteredBatches = useMemo(() => {
     const allowedStatuses = STATUS_TAB_MAP[activeTab];
@@ -82,8 +91,17 @@ export function LaboratoryView({
       : null;
 
   const handleSelectionChange = useCallback((ids: Set<number>) => {
-    setSelectedIds(ids);
-  }, []);
+    setSelectedIds(
+      new Set(
+        batches
+          .filter(
+            (batch) =>
+              ids.has(batch.batch_id) && getBatchEligibility(batch, batchType)
+          )
+          .map((batch) => batch.batch_id)
+      )
+    );
+  }, [batches, batchType]);
 
   const loadBatchDetail = useCallback(async (batchId: number) => {
     setSelectedBatchId(batchId);
@@ -139,6 +157,7 @@ export function LaboratoryView({
   }, [effectiveSelectedBatchId, batchDetail?.batch_id]);
 
   async function handleSelectBatch(batchId: number) {
+    if (isBatchMode) return;
     if (batchId === effectiveSelectedBatchId) return;
 
     await loadBatchDetail(batchId);
@@ -163,8 +182,37 @@ export function LaboratoryView({
     setIsDetailClosed(true);
   }
 
-  function handleClearSelection() {
+  function handleEnterBatchMode() {
+    setIsBatchMode(true);
+    setBatchType("PRE_PSTR");
     setSelectedIds(new Set());
+  }
+
+  function handleExitBatchMode() {
+    setIsBatchMode(false);
+    setSelectedIds(new Set());
+    setActiveTab("all");
+  }
+
+  async function handleLabDataChanged() {
+    await refreshSelectedBatch();
+    router.refresh();
+  }
+
+  function handleBatchTypeChange(nextType: LabBatchType) {
+    setBatchType(nextType);
+    setSelectedIds((current) => {
+      const next = new Set<number>();
+      for (const batch of batches) {
+        if (current.has(batch.batch_id) && getBatchEligibility(batch, nextType)) {
+          next.add(batch.batch_id);
+        }
+      }
+      if (next.size < current.size) {
+        toast.info("Selections that are not eligible for this batch type were removed.");
+      }
+      return next;
+    });
   }
 
   return (
@@ -215,6 +263,10 @@ export function LaboratoryView({
           selectedIds={selectedIds}
           onSelectionChange={handleSelectionChange}
           onFilteredBatchesChange={handleVisibleBatchesChange}
+          isBatchMode={isBatchMode}
+          batchType={batchType}
+          onEnterBatchMode={handleEnterBatchMode}
+          onExitBatchMode={handleExitBatchMode}
         />
         {isLoadingDetail ||
         (effectiveSelectedBatchId !== null && !displayedBatchDetail) ? (
@@ -230,8 +282,11 @@ export function LaboratoryView({
             selectedBatchIds={selectedIds}
             selectedBatchSummaries={selectedBatchSummaries}
             onClose={handleCloseDetail}
-            onClearSelection={handleClearSelection}
-            onBatchUpdated={refreshSelectedBatch}
+            onBatchUpdated={handleLabDataChanged}
+            isBatchMode={isBatchMode}
+            batchType={batchType}
+            onBatchTypeChange={handleBatchTypeChange}
+            onExitBatchMode={handleExitBatchMode}
           />
         )}
       </div>

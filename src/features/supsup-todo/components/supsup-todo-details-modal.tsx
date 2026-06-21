@@ -15,6 +15,8 @@ import { Input } from "@/core/ui/input";
 import { Label } from "@/core/ui/label";
 import { Textarea } from "@/core/ui/textarea";
 import { cn } from "@/core/utils/cn";
+import { formatProgram } from "@/core/utils/program";
+import { formatDonorTrackingNo } from "@/core/utils/tracking";
 import {
   ChevronDown,
   ChevronRight,
@@ -140,11 +142,11 @@ export function SupsupTodoDetailsModal({
         <DialogContent className="!w-[95vw] !max-w-6xl max-h-[90vh] overflow-hidden flex flex-col bg-background border-border">
           <DialogHeader>
             <DialogTitle className="text-foreground text-lg">
-              Supsup Todo Donor Details
+              Donor Donation Details
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              {donor.first_name} {donor.last_name} &bull; D-
-              {donor.donor_id.toString().padStart(4, "0")}
+              {donor.first_name} {donor.last_name} &bull;{" "}
+              {formatDonorTrackingNo(donor.donor_id)}
             </DialogDescription>
           </DialogHeader>
 
@@ -266,7 +268,7 @@ export function SupsupTodoDetailsModal({
               <div className="divide-y divide-border/50">
                 {workflows.length === 0 ? (
                   <div className="p-8 text-center text-sm text-muted-foreground">
-                    No Supsup Todo donation workflows yet.
+                    No donation workflows yet.
                   </div>
                 ) : (
                   workflows.map((workflow) => {
@@ -372,7 +374,7 @@ function DonorSummary({
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
       <DetailItem label="Donor Name" value={`${donor.first_name} ${donor.last_name}`} />
-      <DetailItem label="Donor ID" value={`D-${donor.donor_id.toString().padStart(4, "0")}`} />
+      <DetailItem label="Donor Tracking No" value={formatDonorTrackingNo(donor.donor_id)} />
       <DetailItem label="Contact Number" value={donor.contact_no} />
       <DetailItem label="Donor Status" value={statusLabel(donor.status)} />
       <DetailItem
@@ -765,12 +767,14 @@ function SampleRowSummary({
   return (
     <>
       <span className="font-semibold text-foreground">
-        Sample #{workflow.sample_no}
+        {workflow.tracking_no}
       </span>
       <span className="text-muted-foreground">
         {workflow.extracted_volume ?? workflow.collection?.volume ?? 0} mL
       </span>
-      <span className="text-muted-foreground">Supsup Todo</span>
+      <span className="text-muted-foreground">
+        {formatProgram(workflow.collection?.program ?? workflow.program)}
+      </span>
       <div className="font-medium text-foreground">
         {sampleStageLabel(workflow)}
       </div>

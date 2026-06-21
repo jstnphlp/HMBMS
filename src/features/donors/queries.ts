@@ -1,6 +1,10 @@
 "use server";
 
 import { db } from "@/core/db";
+import {
+  donorIdFromTrackingSearch,
+  normalizeTrackingSearch,
+} from "@/core/utils/tracking";
 import { DonorStatus, Program } from "@/generated/prisma/enums";
 import type {
   DonorEligibilitySummary,
@@ -43,6 +47,7 @@ export interface DonorWithStats {
 export interface DonorDetail extends DonorWithStats {
   collections: {
     ctn: number;
+    tracking_no: string | null;
     collection_date: Date;
     volume: number;
     program: string;
@@ -76,9 +81,12 @@ export async function getDonorsWithStats(
   searchQuery?: string
 ): Promise<DonorWithStats[]> {
   const normalizedQuery = searchQuery?.trim();
-  const numericDonorId = normalizedQuery
-    ? Number(normalizedQuery.match(/\d+/g)?.join("") ?? NaN)
-    : NaN;
+  const trackingDonorId = normalizedQuery
+    ? donorIdFromTrackingSearch(normalizedQuery)
+    : null;
+  const collectionTrackingNo = normalizedQuery
+    ? collectionTrackingFromSearch(normalizedQuery)
+    : null;
   const statusMatch = normalizedQuery
     ? donorStatusFromSearch(normalizedQuery)
     : null;
@@ -112,12 +120,18 @@ export async function getDonorsWithStats(
           { address: { contains: normalizedQuery, mode: "insensitive" as const } },
           { contact_no: { contains: normalizedQuery } },
           { civil_status: { contains: normalizedQuery, mode: "insensitive" as const } },
-          ...(Number.isNaN(numericDonorId)
+          ...(trackingDonorId == null
             ? []
-            : [{ donor_id: numericDonorId }]),
+            : [{ donor_id: trackingDonorId }]),
           ...(statusMatch ? [{ status: statusMatch }] : []),
           ...(programMatch
             ? [{ collections: { some: { program: programMatch } } }]
+            : []),
+          ...(collectionTrackingNo
+            ? [
+                { collections: { some: { tracking_no: collectionTrackingNo } } },
+                { supSupTodoWorkflows: { some: { tracking_no: collectionTrackingNo } } },
+              ]
             : []),
           ...(dateRange
             ? [
@@ -239,6 +253,14 @@ export async function getDonorsWithStats(
   });
 }
 
+function collectionTrackingFromSearch(searchQuery: string) {
+  const normalized = normalizeTrackingSearch(searchQuery);
+  const ctnMatch = normalized.match(/^CTN-?(\d{1,})-?(\d{1,})$/);
+  if (!ctnMatch) return null;
+
+  return `CTN-${ctnMatch[1].padStart(4, "0")}-${ctnMatch[2].padStart(3, "0")}`;
+}
+
 function donorStatusFromSearch(searchQuery: string) {
   const normalized = searchQuery.trim().toUpperCase().replace(/[\s-]+/g, "_");
   if (normalized === "ACTIVE") return DonorStatus.ACTIVE;
@@ -333,6 +355,7 @@ export async function getDonorById(
     last_donation: lastCollection?.collection_date ?? null,
     collections: donor.collections.map((c) => ({
       ctn: c.ctn,
+      tracking_no: c.tracking_no,
       collection_date: c.collection_date,
       volume: c.volume,
       program: c.program,

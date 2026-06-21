@@ -1,7 +1,6 @@
 "use server";
 
 import { db } from "@/core/db";
-import { revalidatePath } from "next/cache";
 import { sendSmsSchema, type SendSmsInput } from "./schemas";
 
 export async function sendSms(rawInput: unknown) {
@@ -76,7 +75,6 @@ export async function sendSms(rawInput: unknown) {
       },
     });
 
-    revalidatePath("/dashboard/recipients");
     return { success: true, data: { message: "SMS sent successfully" } };
   } catch (error) {
     console.error("SMS send error:", error);

@@ -26,6 +26,7 @@ import { SupsupTodoDetailsModal } from "@/features/supsup-todo/components/supsup
 import { getSupsupTodoStartBlockReason } from "@/features/supsup-todo/eligibility";
 import { updateDonor } from "../actions";
 import { cn } from "@/core/utils/cn";
+import { formatDonorTrackingNo } from "@/core/utils/tracking";
 import {
   Edit,
   FileText,
@@ -101,7 +102,7 @@ export function DonorDetailPanel({
                   {donor.first_name} {donor.last_name}
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  ID: D-{donor.donor_id.toString().padStart(4, "0")} &bull; Since{" "}
+                  ID: {formatDonorTrackingNo(donor.donor_id)} &bull; Since{" "}
                   {registrationDate}
                 </p>
               </div>
@@ -164,7 +165,7 @@ export function DonorDetailPanel({
 
           <section>
             <h3 className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-2">
-              Supsup Todo Eligibility
+              Donation Eligibility
             </h3>
             <div className="grid gap-2 text-[12px]">
               <StatusRow
@@ -194,7 +195,7 @@ export function DonorDetailPanel({
 
           <section>
             <h3 className="text-[11px] text-muted-foreground uppercase tracking-wider font-semibold mb-2">
-              Recent Supsup Todo Samples
+              Recent Donation Samples
             </h3>
             <div className="space-y-2">
               {recentWorkflows.length > 0 ? (
@@ -205,7 +206,7 @@ export function DonorDetailPanel({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium text-foreground">
-                        Sample #{workflow.sample_no}
+                        {workflow.tracking_no}
                       </span>
                       <span className="font-semibold text-primary">
                         {workflow.extracted_volume ??
@@ -215,16 +216,21 @@ export function DonorDetailPanel({
                       </span>
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-2 text-muted-foreground">
-                      <span>{formatDate(workflow.collection?.collection_date ?? null)}</span>
+                      <ProgramBadge
+                        program={workflow.collection?.program ?? workflow.program}
+                      />
                       <span className="text-right">
                         {statusLabel(workflow.final_status)}
                       </span>
+                    </div>
+                    <div className="mt-1 text-muted-foreground">
+                      {formatDate(workflow.collection?.collection_date ?? null)}
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="rounded border border-border/50 bg-muted/30 px-3 py-4 text-center text-[12px] text-muted-foreground">
-                  No Supsup Todo samples yet.
+                  No donation samples yet.
                 </div>
               )}
             </div>

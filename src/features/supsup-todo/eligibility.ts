@@ -4,19 +4,19 @@ export function getSupsupTodoStartBlockReason(
   eligibility: DonorEligibilitySummary
 ) {
   if (eligibility?.screening_result === "FAIL") {
-    return "Screening failed. Supsup Todo cannot be started unless screening is updated.";
+    return "Complete Screening and Interview & Consent before starting a donation workflow.";
   }
 
   if (eligibility?.screening_result !== "PASS" && !eligibility?.consent_signed) {
-    return "Complete Screening and Interview & Consent before starting Supsup Todo.";
+    return "Complete Screening and Interview & Consent before starting a donation workflow.";
   }
 
   if (eligibility?.screening_result !== "PASS") {
-    return "Screening must be passed before starting Supsup Todo.";
+    return "Complete Screening and Interview & Consent before starting a donation workflow.";
   }
 
   if (!eligibility?.consent_signed) {
-    return "Interview and consent must be completed before starting Supsup Todo.";
+    return "Complete Screening and Interview & Consent before starting a donation workflow.";
   }
 
   return null;

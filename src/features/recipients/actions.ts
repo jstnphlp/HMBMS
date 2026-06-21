@@ -1,31 +1,33 @@
 "use server";
 
-import { db } from "@/core/db";
 import { revalidatePath } from "next/cache";
-import {
-  createRecipientSchema,
-  updateRecipientSchema,
-  type CreateRecipientInput,
-  type UpdateRecipientInput,
-} from "./schemas";
+import { db } from "@/core/db";
+import { getCurrentUser } from "@/features/auth/actions";
 import { mapPrismaError } from "@/core/utils/prisma-error";
-import { getRecipientById } from "./queries";
+import {
+  createMilkRequestSchema,
+  createRecipientSchema,
+  type CreateMilkRequestInput,
+  type CreateRecipientInput,
+} from "./schemas";
 
-export type ActionResult<T> =
-  | { success: true; data: T }
-  | { success: false; errors: Record<string, string[]> };
-
-export async function getRecipientDetail(beneficiaryId: number) {
-  if (!Number.isInteger(beneficiaryId) || beneficiaryId <= 0) {
-    return null;
-  }
-
-  return getRecipientById(beneficiaryId);
+function clean(value?: string | null) {
+  return value && value.trim().length > 0 ? value.trim() : null;
 }
 
-export async function createRecipient(
-  rawInput: unknown
-): Promise<ActionResult<{ beneficiary_id: number }>> {
+function requirementsComplete(input: CreateMilkRequestInput) {
+  return (
+    input.profile_complete &&
+    input.beneficiary_complete &&
+    input.reason_provided &&
+    input.volume_entered &&
+    input.staff_approved &&
+    input.reason.trim().length > 0 &&
+    input.requested_volume > 0
+  );
+}
+
+export async function createRecipient(rawInput: unknown) {
   const parsed = createRecipientSchema.safeParse(rawInput);
 
   if (!parsed.success) {
@@ -33,151 +35,161 @@ export async function createRecipient(
   }
 
   const input: CreateRecipientInput = parsed.data;
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return {
+      success: false,
+      errors: { _form: ["Authentication required. Please log in."] },
+    };
+  }
 
   try {
-    const beneficiary = await db.beneficiary.create({
+    const recipient = await db.recipient.create({
       data: {
-        name: input.name,
-        contact_no: input.contact_no,
-        remarks: input.remarks ?? null,
+        first_name: input.first_name.trim(),
+        middle_name: clean(input.middle_name),
+        last_name: input.last_name.trim(),
+        contact_no: input.contact_no.trim(),
+        address: input.address.trim(),
+        relationship_to_beneficiary:
+          input.relationship_to_beneficiary.trim(),
+        notes: clean(input.notes),
+        beneficiaries: {
+          create: {
+            name: input.beneficiary_name.trim(),
+            contact_no: input.contact_no.trim(),
+            birthdate: input.beneficiary_birthdate,
+            sex: clean(input.beneficiary_sex),
+            birth_weight: clean(input.beneficiary_birth_weight),
+            gestational_age: clean(input.beneficiary_gestational_age),
+            medical_condition: clean(input.beneficiary_medical_condition),
+            notes: clean(input.beneficiary_notes),
+            remarks: clean(input.beneficiary_medical_condition),
+          },
+        },
+      },
+      select: { recipient_id: true },
+    });
+
+    await db.auditLog.create({
+      data: {
+        user_id: user.user_id,
+        action_details: `Registered recipient #${recipient.recipient_id}: ${input.first_name} ${input.last_name}`,
       },
     });
 
-    const actingUser = await db.user.findFirst({
-      where: { role: "ADMIN" },
-      select: { user_id: true },
-    });
-
-    if (actingUser) {
-      await db.auditLog.create({
-        data: {
-          user_id: actingUser.user_id,
-          action_details: `Created recipient: ${input.name} (REC-${String(beneficiary.beneficiary_id).padStart(4, "0")})`,
-        },
-      });
-    }
-
     revalidatePath("/dashboard/recipients");
-    return { success: true, data: { beneficiary_id: beneficiary.beneficiary_id } };
+    return { success: true, data: recipient };
   } catch (err) {
     console.error("[createRecipient] error:", err);
-    return {
-      success: false,
-      errors: { _form: [mapPrismaError(err)] },
-    };
+    return { success: false, errors: { _form: [mapPrismaError(err)] } };
   }
 }
 
-export async function updateRecipient(
-  beneficiaryId: number,
-  rawInput: unknown
-): Promise<ActionResult<{ beneficiary_id: number }>> {
-  const parsed = updateRecipientSchema.safeParse(rawInput);
+export async function createMilkRequest(rawInput: unknown) {
+  const parsed = createMilkRequestSchema.safeParse(rawInput);
 
   if (!parsed.success) {
     return { success: false, errors: parsed.error.flatten().fieldErrors };
   }
 
-  const input: UpdateRecipientInput = parsed.data;
+  const input: CreateMilkRequestInput = parsed.data;
+  const user = await getCurrentUser();
 
-  const existing = await db.beneficiary.findUnique({
-    where: { beneficiary_id: beneficiaryId },
-  });
-
-  if (!existing) {
+  if (!user) {
     return {
       success: false,
-      errors: { beneficiary_id: ["Recipient not found"] },
+      errors: { _form: ["Authentication required. Please log in."] },
     };
   }
 
   try {
-    await db.beneficiary.update({
-      where: { beneficiary_id: beneficiaryId },
+    const [recipient, beneficiary, duplicateActive] = await Promise.all([
+      db.recipient.findUnique({
+        where: { recipient_id: input.recipient_id },
+        select: { recipient_id: true },
+      }),
+      db.beneficiary.findFirst({
+        where: {
+          beneficiary_id: input.beneficiary_id,
+          recipient_id: input.recipient_id,
+        },
+        select: { beneficiary_id: true },
+      }),
+      db.milkRequest.findFirst({
+        where: {
+          recipient_id: input.recipient_id,
+          beneficiary_id: input.beneficiary_id,
+          status: { in: ["QUEUED", "READY_FOR_RELEASE"] },
+        },
+        select: { request_no: true, status: true },
+      }),
+    ]);
+
+    if (!recipient || !beneficiary) {
+      return {
+        success: false,
+        errors: {
+          _form: ["Recipient and beneficiary must exist before requesting milk."],
+        },
+      };
+    }
+
+    if (duplicateActive) {
+      return {
+        success: false,
+        errors: {
+          _form: [
+            `This recipient and beneficiary already have active request ${duplicateActive.request_no} (${duplicateActive.status}). Resolve it before creating another queued request.`,
+          ],
+        },
+      };
+    }
+
+    const complete = requirementsComplete(input);
+    const status = complete ? "QUEUED" : "INCOMPLETE";
+    const requestNo = `MR-${Date.now().toString(36).toUpperCase()}`;
+
+    const request = await db.milkRequest.create({
       data: {
-        name: input.name,
-        contact_no: input.contact_no,
-        remarks: input.remarks ?? null,
+        request_no: requestNo,
+        recipient_id: input.recipient_id,
+        beneficiary_id: input.beneficiary_id,
+        requested_volume: input.requested_volume,
+        reason: input.reason.trim(),
+        priority: input.priority,
+        needed_by: input.needed_by,
+        remarks: clean(input.remarks),
+        profile_complete: input.profile_complete,
+        beneficiary_complete: input.beneficiary_complete,
+        reason_provided: input.reason_provided,
+        volume_entered: input.volume_entered,
+        staff_approved: input.staff_approved,
+        status,
+        created_by: user.user_id,
+      },
+      select: { request_id: true, request_no: true, status: true },
+    });
+
+    await db.auditLog.create({
+      data: {
+        user_id: user.user_id,
+        action_details: `Created milk request ${request.request_no} with status ${request.status}`,
       },
     });
 
-    const actingUser = await db.user.findFirst({
-      where: { role: "ADMIN" },
-      select: { user_id: true },
-    });
-
-    if (actingUser) {
-      await db.auditLog.create({
-        data: {
-          user_id: actingUser.user_id,
-          action_details: `Updated recipient #${beneficiaryId}: ${input.name}`,
-        },
-      });
-    }
-
     revalidatePath("/dashboard/recipients");
-    return { success: true, data: { beneficiary_id: beneficiaryId } };
+    revalidatePath("/dashboard/distribution");
+    return {
+      success: true,
+      data: request,
+      message: complete
+        ? "Milk request entered the distribution queue."
+        : "Complete the recipient requirements before queueing this milk request.",
+    };
   } catch (err) {
-    console.error("[updateRecipient] error:", err);
-    return {
-      success: false,
-      errors: { _form: [mapPrismaError(err)] },
-    };
-  }
-}
-
-export async function deleteRecipient(
-  beneficiaryId: number
-): Promise<ActionResult<{ beneficiary_id: number }>> {
-  const existing = await db.beneficiary.findUnique({
-    where: { beneficiary_id: beneficiaryId },
-    include: { dispensings: true },
-  });
-
-  if (!existing) {
-    return {
-      success: false,
-      errors: { beneficiary_id: ["Recipient not found"] },
-    };
-  }
-
-  if (existing.dispensings.length > 0) {
-    return {
-      success: false,
-      errors: {
-        beneficiary_id: [
-          "Cannot delete recipient with existing dispensing records",
-        ],
-      },
-    };
-  }
-
-  try {
-    await db.beneficiary.delete({
-      where: { beneficiary_id: beneficiaryId },
-    });
-
-    const actingUser = await db.user.findFirst({
-      where: { role: "ADMIN" },
-      select: { user_id: true },
-    });
-
-    if (actingUser) {
-      await db.auditLog.create({
-        data: {
-          user_id: actingUser.user_id,
-          action_details: `Deleted recipient #${beneficiaryId} (${existing.name})`,
-        },
-      });
-    }
-
-    revalidatePath("/dashboard/recipients");
-    return { success: true, data: { beneficiary_id: beneficiaryId } };
-  } catch (err) {
-    console.error("[deleteRecipient] error:", err);
-    return {
-      success: false,
-      errors: { _form: [mapPrismaError(err)] },
-    };
+    console.error("[createMilkRequest] error:", err);
+    return { success: false, errors: { _form: [mapPrismaError(err)] } };
   }
 }

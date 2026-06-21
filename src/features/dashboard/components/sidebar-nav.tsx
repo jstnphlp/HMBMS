@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/core/utils/cn";
@@ -8,8 +9,8 @@ import {
   Droplets,
   Users,
   Baby,
-  FlaskConical,
   Truck,
+  FlaskConical,
   BarChart3,
   Settings,
   LogOut,
@@ -28,7 +29,7 @@ const mainNav: NavItem[] = [
   { label: "Donors", href: "/dashboard/donors", icon: Users },
   { label: "Collections", href: "/dashboard/laboratory", icon: FlaskConical },
   { label: "Recipients", href: "/dashboard/recipients", icon: Baby },
-  { label: "Distribution", href: "/dashboard/dispensing", icon: Truck },
+  { label: "Distribution", href: "/dashboard/distribution", icon: Truck },
   { label: "Reporting", href: "/dashboard/analytics", icon: BarChart3 },
   { label: "System Settings", href: "/dashboard/settings", icon: Settings },
 ];
@@ -40,29 +41,43 @@ const bottomNav: NavItem[] = [
 function SidebarLink({
   item,
   active,
+  onClick,
+  variant,
 }: {
   item: NavItem;
   active: boolean;
+  onClick?: () => void;
+  variant: "full" | "rail";
 }) {
   const router = useRouter();
   const prefetchRoute = () => router.prefetch(item.href);
+  const isRail = variant === "rail";
 
   return (
-    <li className="mb-1 px-3">
+    <li className={cn("mb-1", isRail ? "px-2" : "px-3")}>
       <Link
         href={item.href}
         prefetch={true}
         onMouseEnter={prefetchRoute}
         onFocus={prefetchRoute}
+        onClick={onClick}
+        aria-label={isRail ? item.label : undefined}
+        title={isRail ? item.label : undefined}
         className={cn(
-          "flex cursor-pointer items-center gap-3 rounded-none px-3 py-2 transition-all active:opacity-80",
+          "flex cursor-pointer items-center rounded-none py-2 transition-all active:opacity-80",
+          isRail ? "justify-center px-0" : "gap-3 px-3",
           active
             ? "bg-primary text-primary-foreground"
             : "text-muted-foreground hover:bg-accent"
         )}
       >
-        <item.icon className="h-5 w-5" />
-        <span className="text-xs leading-4 font-medium tracking-wide">
+        <item.icon className="h-5 w-5 shrink-0" />
+        <span
+          className={cn(
+            "text-xs leading-4 font-medium tracking-wide",
+            isRail && "sr-only"
+          )}
+        >
           {item.label}
         </span>
       </Link>
@@ -70,19 +85,46 @@ function SidebarLink({
   );
 }
 
-export function SidebarNav() {
+export function SidebarNav({
+  variant = "full",
+  className,
+  onNavigate,
+}: {
+  variant?: "full" | "rail";
+  className?: string;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+
+  const activePath = pendingHref ?? pathname;
+  const isRail = variant === "rail";
 
   return (
-    <nav className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r border-border bg-muted pb-4 pt-14">
+    <nav
+      className={cn(
+        "flex h-dvh shrink-0 flex-col border-r border-border bg-muted pb-4",
+        isRail ? "w-20 pt-4" : "w-[280px] pt-14",
+        className
+      )}
+    >
       {/* Clinic header */}
-      <div className="mb-6 mt-4 px-4">
-        <h2 className="text-lg leading-8 font-semibold tracking-tight text-foreground">
-          Makati Branch
-        </h2>
-        <p className="text-xs leading-4 font-medium tracking-wide text-muted-foreground">
-          Ospital ng Makati
-        </p>
+      <div className={cn("mb-6", isRail ? "mt-2 px-2" : "mt-4 px-4")}>
+        {isRail ? (
+          <div className="mx-auto flex size-10 items-center justify-center rounded-sm bg-primary text-sm font-bold text-primary-foreground">
+            MB
+            <span className="sr-only">Makati Branch, Ospital ng Makati</span>
+          </div>
+        ) : (
+          <>
+            <h2 className="text-lg leading-8 font-semibold tracking-tight text-foreground">
+              Makati Branch
+            </h2>
+            <p className="text-xs leading-4 font-medium tracking-wide text-muted-foreground">
+              Ospital ng Makati
+            </p>
+          </>
+        )}
       </div>
 
       {/* Main nav */}
@@ -91,11 +133,18 @@ export function SidebarNav() {
           <SidebarLink
             key={item.href}
             item={item}
+            variant={variant}
             active={
               item.href === "/dashboard"
-                ? pathname === "/dashboard"
-                : pathname === item.href || pathname.startsWith(item.href + "/")
+                ? activePath === "/dashboard"
+                : activePath === item.href || activePath.startsWith(item.href + "/")
             }
+            onClick={() => {
+              if (item.href !== pathname) {
+                setPendingHref(item.href);
+              }
+              onNavigate?.();
+            }}
           />
         ))}
       </ul>
@@ -104,15 +153,23 @@ export function SidebarNav() {
       <ul className="mt-auto flex flex-col pb-4">
         {bottomNav.map((item) =>
           item.href === "#sign-out" ? (
-            <li key={item.label} className="mb-1 px-3">
+            <li key={item.label} className={cn("mb-1", isRail ? "px-2" : "px-3")}>
               <button
                 onClick={() => logout()}
+                aria-label={isRail ? item.label : undefined}
+                title={isRail ? item.label : undefined}
                 className={cn(
-                  "flex w-full cursor-pointer items-center gap-3 rounded-none px-3 py-2 transition-all active:opacity-80 text-muted-foreground hover:bg-accent"
+                  "flex w-full cursor-pointer items-center rounded-none py-2 transition-all active:opacity-80 text-muted-foreground hover:bg-accent",
+                  isRail ? "justify-center px-0" : "gap-3 px-3"
                 )}
               >
-                <item.icon className="h-5 w-5" />
-                <span className="text-xs leading-4 font-medium tracking-wide">
+                <item.icon className="h-5 w-5 shrink-0" />
+                <span
+                  className={cn(
+                    "text-xs leading-4 font-medium tracking-wide",
+                    isRail && "sr-only"
+                  )}
+                >
                   {item.label}
                 </span>
               </button>
@@ -121,7 +178,10 @@ export function SidebarNav() {
             <SidebarLink
               key={item.href}
               item={item}
-              active={pathname === item.href || pathname.startsWith(item.href + "/")}
+              variant={variant}
+              active={
+                activePath === item.href || activePath.startsWith(item.href + "/")
+              }
             />
           )
         )}

@@ -1,10 +1,30 @@
 "use server";
 
 import { db } from "@/core/db";
+import type { Prisma } from "@/generated/prisma/client";
 import { revalidatePath } from "next/cache";
 import { registerDonorSchema, updateDonorSchema, logDropoffSchema } from "./schemas";
 import { mapPrismaError } from "@/core/utils/prisma-error";
+import {
+  formatCollectionTrackingNo,
+  formatDonorTrackingNo,
+} from "@/core/utils/tracking";
 import { getDonorById } from "./queries";
+
+async function nextStandaloneCollectionTrackingNo(
+  tx: Prisma.TransactionClient,
+  donorId: number
+) {
+  const [workflowMax, collectionCount] = await Promise.all([
+    tx.supsupTodoDonationWorkflow.aggregate({
+      where: { donor_id: donorId },
+      _max: { sample_sequence: true },
+    }),
+    tx.collection.count({ where: { donor_id: donorId } }),
+  ]);
+  const sequence = Math.max(workflowMax._max.sample_sequence ?? 0, collectionCount) + 1;
+  return formatCollectionTrackingNo(donorId, sequence);
+}
 
 export async function getDonorDetail(donorId: number) {
   if (!Number.isInteger(donorId) || donorId <= 0) {
@@ -94,7 +114,7 @@ export async function registerDonor(formData: FormData) {
     await db.auditLog.create({
       data: {
         user_id: user.user_id,
-        action_details: `Registered new donor: ${data.first_name} ${data.last_name} (D-${String(donor.donor_id).padStart(4, "0")})`,
+        action_details: `Registered new donor: ${data.first_name} ${data.last_name} (${formatDonorTrackingNo(donor.donor_id)})`,
       },
     });
 
@@ -247,6 +267,7 @@ export async function recordDropoff(donorId: number, formData: FormData) {
           : `BT-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
       await db.$transaction(async (tx) => {
+        const trackingNo = await nextStandaloneCollectionTrackingNo(tx, donorId);
         const batch = await tx.batch.create({
           data: {
             batch_code: data.batch_no!,
@@ -261,6 +282,7 @@ export async function recordDropoff(donorId: number, formData: FormData) {
         await tx.collection.create({
           data: {
             donor_id: donorId,
+            tracking_no: trackingNo,
             recorded_by: user.user_id,
             program: data.program,
             collection_date: data.collection_date,
@@ -294,6 +316,7 @@ export async function recordDropoff(donorId: number, formData: FormData) {
       });
     } else {
       await db.$transaction(async (tx) => {
+        const trackingNo = await nextStandaloneCollectionTrackingNo(tx, donorId);
         const batch = await tx.batch.create({
           data: {
             batch_code: `UNP-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
@@ -308,6 +331,7 @@ export async function recordDropoff(donorId: number, formData: FormData) {
         await tx.collection.create({
           data: {
             donor_id: donorId,
+            tracking_no: trackingNo,
             recorded_by: user.user_id,
             program: data.program,
             collection_date: data.collection_date,

@@ -79,3 +79,17 @@ export const bulkUpdateBatchStatusSchema = z
 export type BulkUpdateBatchStatusInput = z.infer<
   typeof bulkUpdateBatchStatusSchema
 >;
+
+export const saveLabBatchSelectionSchema = z.object({
+  batch_ids: z
+    .array(z.coerce.number().int().positive())
+    .min(1, "At least one collection must be selected"),
+  batch_type: z.enum(["PRE_PSTR", "PSTR", "POST_PSTR"], {
+    message: "Batch type is required",
+  }),
+  notes: z.string().max(500, "Notes must be 500 characters or less").optional(),
+});
+
+export type SaveLabBatchSelectionInput = z.infer<
+  typeof saveLabBatchSelectionSchema
+>;

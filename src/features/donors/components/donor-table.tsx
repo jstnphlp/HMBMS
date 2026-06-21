@@ -23,6 +23,7 @@ import { Badge } from "@/core/ui/badge";
 import { DonorStatusBadge } from "./donor-status-badge";
 import { DonorRegistrationModal } from "./donor-registration-modal";
 import { cn } from "@/core/utils/cn";
+import { formatDonorTrackingNo } from "@/core/utils/tracking";
 import { Search, Filter, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import type { DonorWithStats } from "../queries";
 
@@ -172,10 +173,10 @@ export function DonorTable({
         <Table>
           <TableHeader className="sticky top-0 bg-card z-10 border-b border-border">
             <TableRow className="border-b border-border hover:bg-transparent">
-              <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold w-12">
+              <TableHead className="py-2 px-3 text-center text-[11px] text-muted-foreground uppercase tracking-wider font-semibold w-12">
                 ID
               </TableHead>
-              <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
+              <TableHead className="py-2 px-3 text-center text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
                 Name
               </TableHead>
               <TableHead className="py-2 px-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
@@ -207,8 +208,8 @@ export function DonorTable({
                     : "hover:bg-muted/50"
                 )}
               >
-                <TableCell className="py-2.5 px-3 text-[13px] font-medium text-primary">
-                  D-{donor.donor_id.toString().padStart(4, "0")}
+                <TableCell className="py-2.5 px-3 text-center text-[13px] font-medium text-primary">
+                  {formatDonorTrackingNo(donor.donor_id)}
                 </TableCell>
                 <TableCell className="py-2.5 px-3 text-[13px] font-medium text-foreground">
                   <div className="flex items-center gap-2">
