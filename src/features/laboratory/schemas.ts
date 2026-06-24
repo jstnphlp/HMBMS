@@ -93,3 +93,37 @@ export const saveLabBatchSelectionSchema = z.object({
 export type SaveLabBatchSelectionInput = z.infer<
   typeof saveLabBatchSelectionSchema
 >;
+
+export const bulkSetSentToLabForBatchSchema = z.object({
+  collection_batch_id: z.coerce.number().int().positive("Batch ID is required"),
+  stage: z.enum(["PRE_PASTEURIZATION", "POST_PASTEURIZATION"], {
+    message: "Lab stage is required",
+  }),
+  sample_volume: z.coerce.number().positive().max(5),
+  sent_date: z.coerce.date(),
+  expected_result_date: z.coerce.date().optional(),
+  staff_notes: z.string().trim().max(1000).optional(),
+});
+
+export type BulkSetSentToLabForBatchInput = z.infer<
+  typeof bulkSetSentToLabForBatchSchema
+>;
+
+export const bulkSetLabResultForBatchSchema = z.object({
+  collection_batch_id: z.coerce.number().int().positive("Batch ID is required"),
+  stage: z.enum(["PRE_PASTEURIZATION", "POST_PASTEURIZATION"], {
+    message: "Lab stage is required",
+  }),
+  lab_result: z.enum(["PASS", "FAIL"]),
+  result_received_date: z.coerce.date(),
+  colony_count: z.coerce
+    .number()
+    .int()
+    .min(0, "Colony count cannot be negative")
+    .optional(),
+  staff_notes: z.string().trim().max(1000).optional(),
+});
+
+export type BulkSetLabResultForBatchInput = z.infer<
+  typeof bulkSetLabResultForBatchSchema
+>;

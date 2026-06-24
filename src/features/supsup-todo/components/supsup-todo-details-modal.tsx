@@ -367,6 +367,8 @@ function DonorSummary({
       ? "Screening Failed"
       : eligibility?.screening_result === "PASS" && eligibility.consent_signed
         ? "Eligible"
+        : eligibility?.screening_result === "PASS" && eligibility.consent_date
+          ? "Consent Declined"
         : eligibility?.screening_result === "PASS"
           ? "Screening Passed"
           : "Pending Screening";
@@ -741,7 +743,13 @@ function dateInputValue(date: Date | string | null | undefined) {
 
 function dateTimeInputValue(date: Date | string | null | undefined) {
   if (!date) return "";
-  return new Date(date).toISOString().slice(0, 16);
+  const value = new Date(date);
+  const offset = value.getTimezoneOffset() * 60000;
+  return new Date(value.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function currentDateTimeInputValue() {
+  return dateTimeInputValue(new Date());
 }
 
 function numberInputValue(value: number | null | undefined) {
@@ -1212,10 +1220,7 @@ function StepFields({
   eligibility: DonorDetail["supSupTodoEligibility"];
 }) {
   const nowDate = useMemo(() => new Date().toISOString().split("T")[0], []);
-  const nowDateTime = useMemo(
-    () => new Date().toISOString().slice(0, 16),
-    []
-  );
+  const nowDateTime = useMemo(() => currentDateTimeInputValue(), []);
 
   if (target.type === "screening") {
     return (
@@ -1244,7 +1249,13 @@ function StepFields({
           label="Consent Signed"
           name="consent_signed"
           options={["true", "false"]}
-          defaultValue={eligibility?.consent_signed ? "true" : "false"}
+          defaultValue={
+            eligibility?.consent_signed
+              ? "true"
+              : eligibility?.consent_date
+                ? "false"
+                : "true"
+          }
         />
         <TextField
           label="Consent Date"

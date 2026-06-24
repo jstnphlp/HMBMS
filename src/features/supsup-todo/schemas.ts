@@ -2,6 +2,10 @@ import { z } from "zod";
 
 export const notesSchema = z.string().trim().max(1000).optional();
 
+const formBooleanSchema = z
+  .enum(["true", "false"])
+  .transform((value) => value === "true");
+
 export const donorScreeningSchema = z.object({
   screening_result: z.enum(["PASS", "FAIL"]),
   screening_date: z.coerce.date(),
@@ -10,7 +14,7 @@ export const donorScreeningSchema = z.object({
 
 export const donorConsentSchema = z
   .object({
-    consent_signed: z.coerce.boolean(),
+    consent_signed: formBooleanSchema,
     consent_date: z.coerce.date().optional(),
     staff_notes: notesSchema,
   })
@@ -36,7 +40,7 @@ export const coldChainSchema = z.object({
 });
 
 export const preCollectionSchema = z.object({
-  collection_confirmed: z.coerce.boolean(),
+  collection_confirmed: formBooleanSchema,
   staff_notes: notesSchema,
 });
 

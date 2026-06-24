@@ -7,8 +7,12 @@ import {
   updateBatchLabResultsSchema,
   bulkUpdateBatchStatusSchema,
   saveLabBatchSelectionSchema,
+  bulkSetLabResultForBatchSchema,
+  bulkSetSentToLabForBatchSchema,
 } from "./schemas";
 import type {
+  BulkSetLabResultForBatchInput,
+  BulkSetSentToLabForBatchInput,
   RecordLabResultInput,
   UpdateBatchLabResultsInput,
   BulkUpdateBatchStatusInput,
@@ -24,12 +28,47 @@ import {
 
 type Tx = Prisma.TransactionClient;
 const ACTIVE_COLLECTION_BATCH_STATUSES = ["ACTIVE", "IN_PROGRESS"] as const;
+const BLOCKED_BATCH_STATUSES = new Set(["AVAILABLE", "DISPOSED", "DISPENSED"]);
+const BLOCKED_WORKFLOW_STATUSES = new Set([
+  "PRE_LAB_FAILED",
+  "POST_LAB_FAILED",
+  "DISPOSED",
+]);
 
 function revalidateLabSurfaces() {
   revalidatePath("/dashboard/laboratory");
   revalidatePath("/dashboard/donors");
   revalidatePath("/dashboard/inventory");
   revalidatePath("/dashboard/dispensing");
+}
+
+function expectedDate(sentDate: Date, explicit?: Date) {
+  if (explicit) return explicit;
+  const date = new Date(sentDate);
+  date.setDate(date.getDate() + 14);
+  return date;
+}
+
+function nextRemainingVolume({
+  currentRemaining,
+  currentTotal,
+  newSampleVolume,
+  previousSampleVolume,
+}: {
+  currentRemaining: number | null | undefined;
+  currentTotal: number | null | undefined;
+  newSampleVolume: number;
+  previousSampleVolume: number | null | undefined;
+}) {
+  const baseline = currentRemaining ?? currentTotal ?? 0;
+  const delta = newSampleVolume - (previousSampleVolume ?? 0);
+  const next = baseline - delta;
+
+  if (next < 0) {
+    throw new Error("Sample volume cannot exceed the remaining usable milk volume.");
+  }
+
+  return next;
 }
 
 async function syncSupsupWorkflowLabResult({
@@ -510,6 +549,7 @@ export async function saveLabBatchSelection(rawInput: unknown) {
             select: {
               ctn: true,
               tracking_no: true,
+              bottle_no: true,
               volume: true,
               program: true,
               collection_date: true,
@@ -747,4 +787,361 @@ export async function saveLabBatchSelection(rawInput: unknown) {
       selected: createdBatch.itemCount,
     },
   };
+}
+
+function stageForBatchType(batchType: LabBatchType) {
+  if (batchType === "PRE_PSTR") return "PRE_PASTEURIZATION";
+  if (batchType === "POST_PSTR") return "POST_PASTEURIZATION";
+  return null;
+}
+
+function ctnLabel(item: { ctn: string; collection: { tracking_no: string | null } }) {
+  return item.collection.tracking_no ?? item.ctn;
+}
+
+function assertWorkflowCanBeSentToLab(
+  item: Awaited<ReturnType<typeof getCollectionBatchItemsForUpdate>>[number],
+  stage: "PRE_PASTEURIZATION" | "POST_PASTEURIZATION"
+) {
+  const workflow = item.workflow;
+  const processingBatch = workflow?.batch;
+  const label = ctnLabel(item);
+
+  if (!workflow || !processingBatch) {
+    throw new Error(`${label} has no linked workflow tracker.`);
+  }
+
+  if (BLOCKED_BATCH_STATUSES.has(processingBatch.status)) {
+    throw new Error(`${label} is no longer eligible for Sent to Lab.`);
+  }
+
+  if (
+    workflow.current_step === "DISPOSED" ||
+    BLOCKED_WORKFLOW_STATUSES.has(workflow.final_status)
+  ) {
+    throw new Error(`${label} is no longer eligible for Sent to Lab.`);
+  }
+
+  if (stage === "PRE_PASTEURIZATION") {
+    const inCollectionComplete =
+      workflow.pre_collection_confirmed || !!workflow.cold_chain_started_at;
+
+    if (
+      !inCollectionComplete ||
+      workflow.pre_lab_result ||
+      workflow.pasteurization_confirmed ||
+      workflow.post_sent_to_lab ||
+      workflow.post_lab_result
+    ) {
+      throw new Error(`${label} is no longer eligible for Sent to Lab.`);
+    }
+    return;
+  }
+
+  if (
+    workflow.pre_lab_result !== "PASS" ||
+    !workflow.pasteurization_confirmed ||
+    workflow.post_lab_result
+  ) {
+    throw new Error(`${label} is no longer eligible for Sent to Lab.`);
+  }
+}
+
+function assertWorkflowCanReceiveLabResult(
+  item: Awaited<ReturnType<typeof getCollectionBatchItemsForUpdate>>[number],
+  stage: "PRE_PASTEURIZATION" | "POST_PASTEURIZATION"
+) {
+  const workflow = item.workflow;
+  const processingBatch = workflow?.batch;
+  const label = ctnLabel(item);
+
+  if (!workflow || !processingBatch) {
+    throw new Error(`${label} has no linked workflow tracker.`);
+  }
+
+  if (BLOCKED_BATCH_STATUSES.has(processingBatch.status)) {
+    throw new Error(`${label} is no longer eligible for Lab Result.`);
+  }
+
+  if (
+    workflow.current_step === "DISPOSED" ||
+    BLOCKED_WORKFLOW_STATUSES.has(workflow.final_status)
+  ) {
+    throw new Error(`${label} is no longer eligible for Lab Result.`);
+  }
+
+  if (stage === "PRE_PASTEURIZATION") {
+    if (!workflow.pre_sent_to_lab || workflow.pre_lab_result) {
+      throw new Error(`${label} is no longer awaiting Pre-Pasteurization Lab Result.`);
+    }
+    return;
+  }
+
+  if (
+    workflow.pre_lab_result !== "PASS" ||
+    !workflow.post_sent_to_lab ||
+    workflow.post_lab_result
+  ) {
+    throw new Error(`${label} is no longer awaiting Post-Pasteurization Lab Result.`);
+  }
+}
+
+async function getCollectionBatchItemsForUpdate(
+  tx: Tx,
+  collectionBatchId: number,
+  stage: "PRE_PASTEURIZATION" | "POST_PASTEURIZATION"
+) {
+  const collectionBatch = await tx.collectionBatch.findUnique({
+    where: { id: collectionBatchId },
+    include: {
+      items: {
+        include: {
+          collection: { select: { ctn: true, tracking_no: true } },
+          workflow: {
+            include: {
+              collection: true,
+              batch: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!collectionBatch) {
+    throw new Error("Batch not found.");
+  }
+
+  if (
+    collectionBatch.status !== "ACTIVE" &&
+    collectionBatch.status !== "IN_PROGRESS"
+  ) {
+    throw new Error("Batch is no longer active.");
+  }
+
+  const expectedStage = stageForBatchType(collectionBatch.batch_type);
+  if (!expectedStage || expectedStage !== stage) {
+    throw new Error("Lab stage does not match this batch type.");
+  }
+
+  if (collectionBatch.items.length === 0) {
+    throw new Error("No included collections were found.");
+  }
+
+  return collectionBatch.items;
+}
+
+export async function bulkSetSentToLabForBatch(rawInput: unknown) {
+  const parsed = bulkSetSentToLabForBatchSchema.safeParse(rawInput);
+
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const input: BulkSetSentToLabForBatchInput = parsed.data;
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return { success: false, errors: { _form: ["Not authenticated"] } };
+  }
+
+  try {
+    const result = await db.$transaction(async (tx) => {
+      const items = await getCollectionBatchItemsForUpdate(
+        tx,
+        input.collection_batch_id,
+        input.stage
+      );
+
+      for (const item of items) {
+        assertWorkflowCanBeSentToLab(item, input.stage);
+        const workflow = item.workflow!;
+
+        nextRemainingVolume({
+          currentRemaining: workflow.batch?.remaining_volume,
+          currentTotal: workflow.batch?.total_volume,
+          newSampleVolume: input.sample_volume,
+          previousSampleVolume:
+            input.stage === "PRE_PASTEURIZATION"
+              ? workflow.pre_sample_volume
+              : workflow.post_sample_volume,
+        });
+      }
+
+      for (const item of items) {
+        const workflow = item.workflow!;
+        const batchId = workflow.batch_id!;
+        const remainingVolume = nextRemainingVolume({
+          currentRemaining: workflow.batch?.remaining_volume,
+          currentTotal: workflow.batch?.total_volume,
+          newSampleVolume: input.sample_volume,
+          previousSampleVolume:
+            input.stage === "PRE_PASTEURIZATION"
+              ? workflow.pre_sample_volume
+              : workflow.post_sample_volume,
+        });
+        const existing = await tx.labResult.findFirst({
+          where: { batch_id: batchId, stage: input.stage },
+        });
+        const labData = {
+          result: "PENDING" as const,
+          test_date: input.sent_date,
+          tested_by: user.user_id,
+          remarks: input.staff_notes ?? null,
+        };
+
+        if (existing) {
+          await tx.labResult.update({
+            where: { lab_id: existing.lab_id },
+            data: labData,
+          });
+        } else {
+          await tx.labResult.create({
+            data: {
+              batch_id: batchId,
+              stage: input.stage,
+              ...labData,
+            },
+          });
+        }
+
+        await tx.batch.update({
+          where: { batch_id: batchId },
+          data: {
+            remaining_volume: remainingVolume,
+            status: "TESTING",
+          },
+        });
+
+        await tx.supsupTodoDonationWorkflow.update({
+          where: { workflow_id: workflow.workflow_id },
+          data:
+            input.stage === "PRE_PASTEURIZATION"
+              ? {
+                  pre_sent_to_lab: true,
+                  pre_sample_volume: input.sample_volume,
+                  pre_sample_sent_at: input.sent_date,
+                  pre_expected_result_date: expectedDate(
+                    input.sent_date,
+                    input.expected_result_date
+                  ),
+                  pre_sent_notes: input.staff_notes ?? null,
+                  final_status: "WAITING_PRE_LAB_RESULT",
+                  current_step: "PRE_LAB_RESULT",
+                  updated_by: user.user_id,
+                }
+              : {
+                  post_sent_to_lab: true,
+                  post_sample_volume: input.sample_volume,
+                  post_sample_sent_at: input.sent_date,
+                  post_expected_result_date: expectedDate(
+                    input.sent_date,
+                    input.expected_result_date
+                  ),
+                  post_sent_notes: input.staff_notes ?? null,
+                  final_status: "WAITING_POST_LAB_RESULT",
+                  current_step: "POST_LAB_RESULT",
+                  updated_by: user.user_id,
+                },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          user_id: user.user_id,
+          action_details: `Bulk set ${input.stage} Sent to Lab for collection batch #${input.collection_batch_id} (${items.length} CTN${items.length === 1 ? "" : "s"})`,
+        },
+      });
+
+      return { updated: items.length };
+    });
+
+    revalidateLabSurfaces();
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, errors: { _form: [err instanceof Error ? err.message : "Bulk Sent to Lab failed."] } };
+  }
+}
+
+export async function bulkSetLabResultForBatch(rawInput: unknown) {
+  const parsed = bulkSetLabResultForBatchSchema.safeParse(rawInput);
+
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const input: BulkSetLabResultForBatchInput = parsed.data;
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return { success: false, errors: { _form: ["Not authenticated"] } };
+  }
+
+  try {
+    const result = await db.$transaction(async (tx) => {
+      const items = await getCollectionBatchItemsForUpdate(
+        tx,
+        input.collection_batch_id,
+        input.stage
+      );
+
+      for (const item of items) {
+        assertWorkflowCanReceiveLabResult(item, input.stage);
+      }
+
+      for (const item of items) {
+        const workflow = item.workflow!;
+        const batchId = workflow.batch_id!;
+        const existing = await tx.labResult.findFirst({
+          where: { batch_id: batchId, stage: input.stage },
+        });
+        const labData = {
+          result: input.lab_result,
+          colony_count: input.colony_count ?? null,
+          test_date: input.result_received_date,
+          tested_by: user.user_id,
+          remarks: input.staff_notes ?? null,
+        };
+
+        if (existing) {
+          await tx.labResult.update({
+            where: { lab_id: existing.lab_id },
+            data: labData,
+          });
+        } else {
+          await tx.labResult.create({
+            data: {
+              batch_id: batchId,
+              stage: input.stage,
+              ...labData,
+            },
+          });
+        }
+
+        await syncSupsupWorkflowLabResult({
+          tx,
+          batchId,
+          stage: input.stage,
+          result: input.lab_result,
+          userId: user.user_id,
+          testDate: input.result_received_date,
+          remarks: input.staff_notes,
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          user_id: user.user_id,
+          action_details: `Bulk set ${input.stage} Lab Result to ${input.lab_result} for collection batch #${input.collection_batch_id} (${items.length} CTN${items.length === 1 ? "" : "s"})`,
+        },
+      });
+
+      return { updated: items.length };
+    });
+
+    revalidateLabSurfaces();
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, errors: { _form: [err instanceof Error ? err.message : "Bulk Lab Result failed."] } };
+  }
 }

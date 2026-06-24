@@ -6,13 +6,23 @@ export type RecipientRequestSummary = {
   request_id: number;
   request_no: string;
   beneficiary_id: number;
+  beneficiary_name: string;
   status: string;
   priority: string;
   requested_volume: number;
   allocated_volume: number;
   released_volume: number;
-  payment_status: string;
+  reason: string;
+  needed_by: string | null;
+  remarks: string | null;
+  profile_complete: boolean;
+  beneficiary_complete: boolean;
+  reason_provided: boolean;
+  volume_entered: boolean;
+  staff_approved: boolean;
+  cancellation_reason: string | null;
   created_at: string;
+  released_at: string | null;
 };
 
 export type RecipientBeneficiarySummary = {
@@ -107,13 +117,23 @@ export async function getRecipients(): Promise<RecipientListItem[]> {
           request_id: true,
           request_no: true,
           beneficiary_id: true,
+          beneficiary: { select: { name: true } },
           status: true,
           priority: true,
           requested_volume: true,
           allocated_volume: true,
           released_volume: true,
-          payment_status: true,
+          reason: true,
+          needed_by: true,
+          remarks: true,
+          profile_complete: true,
+          beneficiary_complete: true,
+          reason_provided: true,
+          volume_entered: true,
+          staff_approved: true,
+          cancellation_reason: true,
           created_at: true,
+          released_at: true,
         },
       },
     },
@@ -121,8 +141,26 @@ export async function getRecipients(): Promise<RecipientListItem[]> {
 
   return recipients.map((recipient) => {
     const requests = recipient.milkRequests.map((request) => ({
-      ...request,
+      request_id: request.request_id,
+      request_no: request.request_no,
+      beneficiary_id: request.beneficiary_id,
+      beneficiary_name: request.beneficiary.name,
+      status: request.status,
+      priority: request.priority,
+      requested_volume: request.requested_volume,
+      allocated_volume: request.allocated_volume,
+      released_volume: request.released_volume,
+      reason: request.reason,
+      needed_by: request.needed_by?.toISOString() ?? null,
+      remarks: request.remarks,
+      profile_complete: request.profile_complete,
+      beneficiary_complete: request.beneficiary_complete,
+      reason_provided: request.reason_provided,
+      volume_entered: request.volume_entered,
+      staff_approved: request.staff_approved,
+      cancellation_reason: request.cancellation_reason,
       created_at: request.created_at.toISOString(),
+      released_at: request.released_at?.toISOString() ?? null,
     }));
 
     return {

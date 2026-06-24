@@ -59,6 +59,7 @@ export interface LabBatchDetail {
   collections: {
     ctn: number;
     tracking_no: string | null;
+    bottle_no: string | null;
     donor_name: string;
     volume: number;
     program: string;
@@ -143,6 +144,7 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
             select: {
               ctn: true,
               tracking_no: true,
+              bottle_no: true,
               volume: true,
               program: true,
               collection_date: true,
@@ -261,6 +263,7 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
                         select: {
                           ctn: true,
                           tracking_no: true,
+                          bottle_no: true,
                           volume: true,
                           program: true,
                           collection_date: true,
@@ -425,6 +428,7 @@ export async function getBatchLabDetail(
                 {
                   ctn: item.supSupTodoWorkflow.collection.ctn,
                   tracking_no: item.supSupTodoWorkflow.collection.tracking_no,
+                  bottle_no: item.supSupTodoWorkflow.collection.bottle_no,
                   donor_name: item.donor_name,
                   volume: item.supSupTodoWorkflow.collection.volume,
                   program: item.supSupTodoWorkflow.collection.program,
@@ -447,6 +451,7 @@ export async function getBatchLabDetail(
             select: {
               ctn: true,
               tracking_no: true,
+              bottle_no: true,
               volume: true,
               program: true,
               collection_date: true,
@@ -496,6 +501,7 @@ export async function getBatchLabDetail(
     collections: batch.collections.map((c) => ({
       ctn: c.ctn,
       tracking_no: c.tracking_no,
+      bottle_no: c.bottle_no,
       donor_name: `${c.donor.first_name} ${c.donor.last_name}`,
       volume: c.volume,
       program: c.program,

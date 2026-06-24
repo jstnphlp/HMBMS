@@ -1,6 +1,7 @@
 "use server";
 
 import { db } from "@/core/db";
+import type { RecipientListItem, RecipientRequestSummary } from "@/features/recipients/queries";
 
 export type DistributionRequest = {
   request_id: number;
@@ -26,6 +27,8 @@ export type DistributionRequest = {
   released_by: string | null;
   remarks: string | null;
   source_ctns: string[];
+  recipient_detail: RecipientListItem;
+  request_detail: RecipientRequestSummary;
 };
 
 export type DispensingLogbookEntry = DistributionRequest & {
@@ -79,7 +82,44 @@ function sourceLabels(request: {
   });
 }
 
+function fullName(recipient: {
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+}) {
+  return [recipient.first_name, recipient.middle_name, recipient.last_name]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function recipientDisplayId(id: number) {
+  return `REC-${String(id).padStart(4, "0")}`;
+}
+
 function mapRequest(request: Awaited<ReturnType<typeof fetchRequests>>[number]): DistributionRequest {
+  const requestDetail = {
+    request_id: request.request_id,
+    request_no: request.request_no,
+    beneficiary_id: request.beneficiary_id,
+    beneficiary_name: request.beneficiary.name,
+    status: request.status,
+    priority: request.priority,
+    requested_volume: request.requested_volume,
+    allocated_volume: request.allocated_volume,
+    released_volume: request.released_volume,
+    reason: request.reason,
+    needed_by: request.needed_by?.toISOString() ?? null,
+    remarks: request.remarks,
+    profile_complete: request.profile_complete,
+    beneficiary_complete: request.beneficiary_complete,
+    reason_provided: request.reason_provided,
+    volume_entered: request.volume_entered,
+    staff_approved: request.staff_approved,
+    cancellation_reason: request.cancellation_reason,
+    created_at: request.created_at.toISOString(),
+    released_at: request.released_at?.toISOString() ?? null,
+  };
+
   return {
     request_id: request.request_id,
     request_no: request.request_no,
@@ -104,17 +144,45 @@ function mapRequest(request: Awaited<ReturnType<typeof fetchRequests>>[number]):
     released_by: request.releaser?.full_name || request.releaser?.email || null,
     remarks: request.remarks,
     source_ctns: sourceLabels(request),
+    request_detail: requestDetail,
+    recipient_detail: {
+      recipient_id: request.recipient.recipient_id,
+      display_id: recipientDisplayId(request.recipient.recipient_id),
+      first_name: request.recipient.first_name,
+      middle_name: request.recipient.middle_name,
+      last_name: request.recipient.last_name,
+      full_name: fullName(request.recipient),
+      contact_no: request.recipient.contact_no,
+      address: request.recipient.address,
+      relationship_to_beneficiary: request.recipient.relationship_to_beneficiary,
+      notes: request.recipient.notes,
+      status: request.recipient.status,
+      created_at: request.recipient.created_at.toISOString(),
+      beneficiaries: request.recipient.beneficiaries.map((beneficiary) => ({
+        beneficiary_id: beneficiary.beneficiary_id,
+        name: beneficiary.name,
+        birthdate: beneficiary.birthdate?.toISOString() ?? null,
+        sex: beneficiary.sex,
+        birth_weight: beneficiary.birth_weight,
+        gestational_age: beneficiary.gestational_age,
+        medical_condition: beneficiary.medical_condition,
+        notes: beneficiary.notes ?? beneficiary.remarks,
+      })),
+      requests: [requestDetail],
+      latestRequest: requestDetail,
+    },
   };
 }
 
 async function fetchRequests() {
   return db.milkRequest.findMany({
+    where: {
+      status: { in: ["QUEUED", "READY_FOR_RELEASE", "RELEASED", "CANCELLED"] },
+    },
     include: {
       recipient: {
-        select: {
-          first_name: true,
-          middle_name: true,
-          last_name: true,
+        include: {
+          beneficiaries: { orderBy: { created_at: "desc" } },
         },
       },
       beneficiary: { select: { name: true } },
@@ -228,9 +296,7 @@ export async function getDistributionData(): Promise<DistributionData> {
   });
 
   return {
-    queue: mapped.filter((request) =>
-      ["QUEUED", "PARTIALLY_FULFILLED"].includes(request.status)
-    ),
+    queue: mapped.filter((request) => request.status === "QUEUED"),
     ready: mapped.filter((request) => request.status === "READY_FOR_RELEASE"),
     released: requests
       .filter((request) => request.status === "RELEASED")

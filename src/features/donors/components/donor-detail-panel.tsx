@@ -22,8 +22,15 @@ import {
 import { DonorStatusBadge } from "./donor-status-badge";
 import { ProgramBadge } from "./program-badge";
 import { StartWorkflowDialog } from "./start-workflow-dialog";
-import { SupsupTodoDetailsModal } from "@/features/supsup-todo/components/supsup-todo-details-modal";
-import { getSupsupTodoStartBlockReason } from "@/features/supsup-todo/eligibility";
+import {
+  StepActionDialog,
+  SupsupTodoDetailsModal,
+  type StepTarget,
+} from "@/features/supsup-todo/components/supsup-todo-details-modal";
+import {
+  getConsentBlockReason,
+  getSupsupTodoStartBlockReason,
+} from "@/features/supsup-todo/eligibility";
 import { updateDonor } from "../actions";
 import { cn } from "@/core/utils/cn";
 import { formatDonorTrackingNo } from "@/core/utils/tracking";
@@ -52,10 +59,12 @@ export function DonorDetailPanel({
 }: DonorDetailPanelProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [stepTarget, setStepTarget] = useState<StepTarget | null>(null);
 
   const eligibility = donor.supSupTodoEligibility;
   const recentWorkflows = donor.supSupTodoWorkflows.slice(0, 3);
   const startBlockReason = getSupsupTodoStartBlockReason(eligibility);
+  const consentBlockReason = getConsentBlockReason(eligibility);
 
   function getInitials(first: string, last: string) {
     return `${first[0] ?? ""}${last[0] ?? ""}`.toUpperCase();
@@ -184,11 +193,25 @@ export function DonorDetailPanel({
                       ? "danger"
                       : "muted"
                 }
+                onClick={() => setStepTarget({ type: "screening" })}
               />
               <StatusRow
                 label="Interview & Consent"
-                value={eligibility?.consent_signed ? "Signed" : "Pending"}
+                value={
+                  eligibility?.consent_signed
+                    ? "Signed"
+                    : eligibility?.consent_date
+                      ? "Declined"
+                      : "Not Signed"
+                }
                 tone={eligibility?.consent_signed ? "success" : "muted"}
+                onClick={() => {
+                  if (consentBlockReason) {
+                    toast.warning(consentBlockReason);
+                    return;
+                  }
+                  setStepTarget({ type: "consent" });
+                }}
               />
             </div>
           </section>
@@ -280,6 +303,17 @@ export function DonorDetailPanel({
         onOpenChange={setDetailsOpen}
         onUpdated={onDonorUpdated}
       />
+
+      <StepActionDialog
+        donorId={donor.donor_id}
+        target={stepTarget}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setStepTarget(null);
+        }}
+        onUpdated={onDonorUpdated}
+        workflow={null}
+        eligibility={eligibility}
+      />
     </>
   );
 }
@@ -308,13 +342,15 @@ function StatusRow({
   label,
   value,
   tone,
+  onClick,
 }: {
   label: string;
   value: string;
   tone: "success" | "danger" | "muted";
+  onClick?: () => void;
 }) {
-  return (
-    <div className="flex items-center justify-between rounded border border-border/50 bg-muted/30 px-3 py-2">
+  const content = (
+    <>
       <span className="text-muted-foreground">{label}</span>
       <span
         className={cn(
@@ -326,6 +362,24 @@ function StatusRow({
       >
         {value}
       </span>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className="flex items-center justify-between rounded border border-border/50 bg-muted/30 px-3 py-2 text-left transition-colors hover:border-primary/40 hover:bg-muted/60"
+        onClick={onClick}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between rounded border border-border/50 bg-muted/30 px-3 py-2">
+      {content}
     </div>
   );
 }

@@ -108,6 +108,9 @@ export async function allocateMilk(rawInput: unknown) {
       if (!request) throw new Error("Milk request was not found.");
       if (request.status === "CANCELLED") throw new Error("Cancelled requests cannot be allocated.");
       if (request.status === "RELEASED") throw new Error("Released requests cannot be changed.");
+      if (request.status !== "QUEUED") {
+        throw new Error("Only queued requests can be allocated.");
+      }
       if (!requiredChecklistComplete(request)) {
         throw new Error("Complete the recipient requirements before queueing this milk request.");
       }
@@ -237,6 +240,9 @@ export async function releaseMilk(rawInput: unknown) {
       if (!request) throw new Error("Milk request was not found.");
       if (request.status === "CANCELLED") throw new Error("Cancelled requests cannot be released.");
       if (request.status === "RELEASED") throw new Error("This request has already been released.");
+      if (request.status !== "READY_FOR_RELEASE") {
+        throw new Error("Only requests ready for release can be released.");
+      }
       if (!requiredChecklistComplete(request)) {
         throw new Error("Missing requirements. Complete the checklist before release.");
       }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { Badge } from "@/core/ui/badge";
 import { Button } from "@/core/ui/button";
 import { Input } from "@/core/ui/input";
@@ -20,6 +20,8 @@ import { LabResultBadge } from "./lab-result-badge";
 import { cn } from "@/core/utils/cn";
 import { formatProgram } from "@/core/utils/program";
 import {
+  bulkSetLabResultForBatch,
+  bulkSetSentToLabForBatch,
   recordLabResult,
   saveLabBatchSelection,
 } from "../actions";
@@ -366,6 +368,367 @@ function BulkEditPanel({
   );
 }
 
+function todayInputValue() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function addDaysInputValue(dateValue: string, days: number) {
+  if (!dateValue) return "";
+  const date = new Date(`${dateValue}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().split("T")[0];
+}
+
+function bottleNumberFor(batch: LabBatchSummary) {
+  return (
+    batch.supSupTodoWorkflow?.bottle_no ??
+    batch.supSupTodoWorkflow?.collection?.bottle_no ??
+    "Not recorded"
+  );
+}
+
+function workflowCanBeSentToLab(batch: LabBatchSummary, batchType: LabBatchType) {
+  const workflow = batch.supSupTodoWorkflow;
+  if (!workflow || workflow.current_step === "DISPOSED") return false;
+  if (batch.status === "AVAILABLE" || batch.status === "DISPOSED") return false;
+
+  if (batchType === "PRE_PSTR") {
+    return (
+      (workflow.pre_collection_confirmed || !!workflow.cold_chain_started_at) &&
+      !workflow.pre_lab_result &&
+      !workflow.pasteurization_confirmed &&
+      !workflow.post_sent_to_lab &&
+      !workflow.post_lab_result
+    );
+  }
+
+  if (batchType === "POST_PSTR") {
+    return (
+      workflow.pre_lab_result === "PASS" &&
+      workflow.pasteurization_confirmed &&
+      !workflow.post_lab_result
+    );
+  }
+
+  return false;
+}
+
+function workflowCanReceiveLabResult(batch: LabBatchSummary, batchType: LabBatchType) {
+  const workflow = batch.supSupTodoWorkflow;
+  if (!workflow || workflow.current_step === "DISPOSED") return false;
+  if (batch.status === "AVAILABLE" || batch.status === "DISPOSED") return false;
+
+  if (batchType === "PRE_PSTR") {
+    return workflow.pre_sent_to_lab && !workflow.pre_lab_result;
+  }
+
+  if (batchType === "POST_PSTR") {
+    return (
+      workflow.pre_lab_result === "PASS" &&
+      workflow.post_sent_to_lab &&
+      !workflow.post_lab_result
+    );
+  }
+
+  return false;
+}
+
+function BulkSentToLabDialog({
+  open,
+  onOpenChange,
+  collectionBatchId,
+  batchType,
+  eligibleCount,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  collectionBatchId: number;
+  batchType: LabBatchType;
+  eligibleCount: number;
+  onSaved: () => Promise<void> | void;
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const initialSentDate = todayInputValue();
+  const [sentDate, setSentDate] = useState(initialSentDate);
+  const [expectedDate, setExpectedDate] = useState(
+    addDaysInputValue(initialSentDate, 14)
+  );
+  const stage =
+    batchType === "PRE_PSTR" ? "PRE_PASTEURIZATION" : "POST_PASTEURIZATION";
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    setIsSubmitting(true);
+
+    const response = await bulkSetSentToLabForBatch({
+      collection_batch_id: collectionBatchId,
+      stage,
+      sample_volume: formData.get("sample_volume")?.toString(),
+      sent_date: formData.get("sent_date")?.toString(),
+      expected_result_date: formData.get("expected_result_date")?.toString(),
+      staff_notes: formData.get("staff_notes")?.toString().trim() || undefined,
+    });
+
+    if (response.success && response.data) {
+      toast.success(`Sent to Lab applied to ${response.data.updated} collection(s).`);
+      await onSaved();
+      onOpenChange(false);
+    } else {
+      const firstError = Object.values(response.errors ?? {}).flat()[0];
+      toast.error(firstError ?? "Failed to apply Sent to Lab.");
+    }
+
+    setIsSubmitting(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md bg-background border-border">
+        <DialogHeader>
+          <DialogTitle className="text-base text-foreground">
+            Set All Sent to Lab
+          </DialogTitle>
+          <DialogDescription>
+            Apply common Sent to Lab values to {eligibleCount} eligible collection(s).
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="bulk_sample_volume">Sample Volume in mL</Label>
+            <Input
+              id="bulk_sample_volume"
+              name="sample_volume"
+              type="number"
+              min="0.1"
+              max="5"
+              step="0.1"
+              required
+              className="bg-card border-border"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="bulk_sent_date">Sent Date</Label>
+            <Input
+              id="bulk_sent_date"
+              name="sent_date"
+              type="date"
+              value={sentDate}
+              onChange={(event) => {
+                setSentDate(event.target.value);
+                setExpectedDate(addDaysInputValue(event.target.value, 14));
+              }}
+              required
+              className="bg-card border-border"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="bulk_expected_result_date">Expected Result Date</Label>
+            <Input
+              id="bulk_expected_result_date"
+              name="expected_result_date"
+              type="date"
+              value={expectedDate}
+              onChange={(event) => setExpectedDate(event.target.value)}
+              required
+              className="bg-card border-border"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="bulk_sent_notes">Staff Notes</Label>
+            <Textarea
+              id="bulk_sent_notes"
+              name="staff_notes"
+              className="min-h-20 bg-card border-border"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              Apply
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BulkLabResultDialog({
+  open,
+  onOpenChange,
+  collectionBatchId,
+  batchType,
+  eligibleCount,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  collectionBatchId: number;
+  batchType: LabBatchType;
+  eligibleCount: number;
+  onSaved: () => Promise<void> | void;
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingRaw, setPendingRaw] = useState<Record<string, FormDataEntryValue> | null>(
+    null
+  );
+  const stage =
+    batchType === "PRE_PSTR" ? "PRE_PASTEURIZATION" : "POST_PASTEURIZATION";
+  const pendingResult = pendingRaw?.lab_result;
+
+  async function save(raw: Record<string, FormDataEntryValue>) {
+    setIsSubmitting(true);
+    const response = await bulkSetLabResultForBatch({
+      collection_batch_id: collectionBatchId,
+      stage,
+      lab_result: raw.lab_result?.toString(),
+      result_received_date: raw.result_received_date?.toString(),
+      colony_count: raw.colony_count?.toString() || undefined,
+      staff_notes: raw.staff_notes?.toString().trim() || undefined,
+    });
+
+    if (response.success && response.data) {
+      toast.success(`Lab Result applied to ${response.data.updated} collection(s).`);
+      setPendingRaw(null);
+      await onSaved();
+      onOpenChange(false);
+    } else {
+      const firstError = Object.values(response.errors ?? {}).flat()[0];
+      toast.error(firstError ?? "Failed to apply Lab Result.");
+    }
+
+    setIsSubmitting(false);
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPendingRaw(Object.fromEntries(new FormData(event.currentTarget).entries()));
+  }
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-md bg-background border-border">
+          <DialogHeader>
+            <DialogTitle className="text-base text-foreground">
+              Set All Lab Result
+            </DialogTitle>
+            <DialogDescription>
+              Apply one lab result to {eligibleCount} eligible collection(s).
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="bulk_lab_result">Lab Result</Label>
+              <select
+                id="bulk_lab_result"
+                name="lab_result"
+                required
+                className="h-9 rounded-md border border-border bg-card px-3 text-sm text-foreground"
+                defaultValue="PASS"
+              >
+                <option value="PASS">PASS</option>
+                <option value="FAIL">FAIL</option>
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="bulk_result_received_date">Result Received Date</Label>
+              <Input
+                id="bulk_result_received_date"
+                name="result_received_date"
+                type="date"
+                defaultValue={todayInputValue()}
+                required
+                className="bg-card border-border"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="bulk_colony_count">Colony Count</Label>
+              <Input
+                id="bulk_colony_count"
+                name="colony_count"
+                type="number"
+                min="0"
+                className="bg-card border-border"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="bulk_lab_notes">Staff Notes</Label>
+              <Textarea
+                id="bulk_lab_notes"
+                name="staff_notes"
+                className="min-h-20 bg-card border-border"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isSubmitting}
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                Continue
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!pendingRaw}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setPendingRaw(null);
+        }}
+      >
+        <DialogContent className="max-w-sm bg-background border-border">
+          <DialogHeader>
+            <DialogTitle className="text-base text-foreground">
+              Confirm {pendingResult === "FAIL" ? "Failed" : "Passed"} Results
+            </DialogTitle>
+            <DialogDescription>
+              {`Are you sure you want to mark all selected batch records as ${pendingResult === "FAIL" ? "FAILED" : "PASSED"}?`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={() => setPendingRaw(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant={pendingResult === "FAIL" ? "destructive" : "default"}
+              disabled={isSubmitting || !pendingRaw}
+              onClick={() => {
+                if (pendingRaw) void save(pendingRaw);
+              }}
+            >
+              {isSubmitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              Confirm
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function BatchFullDetailsDialog({
   open,
   onOpenChange,
@@ -416,6 +779,7 @@ function BatchFullDetailsDialog({
                 <TableHead className="text-xs">CTN</TableHead>
                 <TableHead className="text-xs">Donor Name</TableHead>
                 <TableHead className="text-xs">Program</TableHead>
+                <TableHead className="text-xs">Bottle No</TableHead>
                 <TableHead className="text-right text-xs">Volume</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
                 <TableHead className="min-w-[260px] text-xs">Tracker</TableHead>
@@ -430,6 +794,9 @@ function BatchFullDetailsDialog({
                   <TableCell className="text-xs">{batch.donor_name}</TableCell>
                   <TableCell className="text-xs">
                     {formatProgram(batch.program)}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {bottleNumberFor(batch)}
                   </TableCell>
                   <TableCell className="text-right text-xs tabular-nums">
                     {batch.remaining_volume.toLocaleString()} mL
@@ -449,7 +816,7 @@ function BatchFullDetailsDialog({
               {selectedBatchSummaries.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={6}
+                    colSpan={7}
                     className="py-10 text-center text-sm text-muted-foreground"
                   >
                     No selected collections.
@@ -662,8 +1029,17 @@ function SavedCollectionBatchPanel({
 }) {
   const [stepTarget, setStepTarget] = useState<StepTarget | null>(null);
   const [fullDetailsOpen, setFullDetailsOpen] = useState(false);
+  const [bulkSentOpen, setBulkSentOpen] = useState(false);
+  const [bulkResultOpen, setBulkResultOpen] = useState(false);
   const batchType = batch.collection_batch_type ?? "PRE_PSTR";
   const items = batch.collection_batch_items ?? [];
+  const sentEligibleCount = items.filter((item) =>
+    workflowCanBeSentToLab(item, batchType)
+  ).length;
+  const resultEligibleCount = items.filter((item) =>
+    workflowCanReceiveLabResult(item, batchType)
+  ).length;
+  const showLabBatchActions = batchType === "PRE_PSTR" || batchType === "POST_PSTR";
   const targetWorkflow =
     stepTarget && "workflowId" in stepTarget
       ? items
@@ -747,9 +1123,51 @@ function SavedCollectionBatchPanel({
         <Separator className="bg-border/50" />
 
         <section>
-          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
-            Included Collections
-          </h4>
+          <div className="mb-3 flex flex-col gap-2">
+            <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">
+              Included Collections
+            </h4>
+            {showLabBatchActions ? (
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="text-[11px]"
+                  disabled={sentEligibleCount === 0}
+                  title={
+                    sentEligibleCount === 0
+                      ? "No eligible collections for this action."
+                      : undefined
+                  }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setBulkSentOpen(true);
+                  }}
+                >
+                  Set All Sent to Lab
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="text-[11px]"
+                  disabled={resultEligibleCount === 0}
+                  title={
+                    resultEligibleCount === 0
+                      ? "No eligible collections for this action."
+                      : undefined
+                  }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setBulkResultOpen(true);
+                  }}
+                >
+                  Set All Lab Result
+                </Button>
+              </div>
+            ) : null}
+          </div>
           <div className="space-y-2">
             {items.map((item) => (
               <div
@@ -764,6 +1182,9 @@ function SavedCollectionBatchPanel({
                     </p>
                     <p className="text-[10px] text-muted-foreground">
                       {item.donor_name} {"\u00B7"} {formatProgram(item.program)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Bottle No: {bottleNumberFor(item)}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -823,6 +1244,27 @@ function SavedCollectionBatchPanel({
         description={`${getLabBatchTypeMeta(batchType).label} · ${batch.collection_batch_status ?? "In Progress"}`}
         notes={batch.notes}
       />
+
+      {showLabBatchActions && batch.collection_batch_id ? (
+        <>
+          <BulkSentToLabDialog
+            open={bulkSentOpen}
+            onOpenChange={setBulkSentOpen}
+            collectionBatchId={batch.collection_batch_id}
+            batchType={batchType}
+            eligibleCount={sentEligibleCount}
+            onSaved={onBatchUpdated}
+          />
+          <BulkLabResultDialog
+            open={bulkResultOpen}
+            onOpenChange={setBulkResultOpen}
+            collectionBatchId={batch.collection_batch_id}
+            batchType={batchType}
+            eligibleCount={resultEligibleCount}
+            onSaved={onBatchUpdated}
+          />
+        </>
+      ) : null}
 
       <StepActionDialog
         donorId={targetWorkflow?.donor_id ?? 0}
@@ -907,6 +1349,7 @@ function SingleBatchPanel({
       );
       setRemarks("");
       setColonyCount("");
+      await onBatchUpdated();
     } else {
       const errors = response.errors;
       const firstError = errors
@@ -1159,7 +1602,7 @@ function SingleBatchPanel({
         {/* Sample Workflow */}
         <section>
           <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-3">
-            Sample Workflow
+            Workflow
           </h4>
 
           {batch.supSupTodoWorkflow ? (

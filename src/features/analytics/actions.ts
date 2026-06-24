@@ -2,11 +2,12 @@
 
 import { db } from "@/core/db";
 import { revalidatePath } from "next/cache";
-import { generateReportSchema } from "./schemas";
+import { generatedReportSchema, generateReportSchema } from "./schemas";
 import { mapPrismaError } from "@/core/utils/prisma-error";
 import {
   type AnalyticsSummary,
   getAnalyticsSummary,
+  getGeneratedReport,
   getProgramDistribution,
   getReports,
   getVolumeTrends,
@@ -14,7 +15,7 @@ import {
   type ReportWithUser,
   type VolumeTrendPoint,
 } from "./queries";
-import type { GenerateReportInput } from "./schemas";
+import type { GeneratedReportInput, GenerateReportInput } from "./schemas";
 import type { Report } from "@/generated/prisma/client";
 
 type GenerateReportAndRefreshAnalyticsResult =
@@ -30,6 +31,48 @@ type GenerateReportAndRefreshAnalyticsResult =
       success: false;
       errors: Record<string, string[]>;
     };
+
+type GenerateGeneratedReportResult =
+  | {
+      success: true;
+      generatedReport: Awaited<ReturnType<typeof getGeneratedReport>>;
+    }
+  | {
+      success: false;
+      errors: Record<string, string[]>;
+    };
+
+export async function generateGeneratedReport(
+  rawInput: unknown
+): Promise<GenerateGeneratedReportResult> {
+  const parsed = generatedReportSchema.safeParse(rawInput);
+  if (!parsed.success) {
+    return {
+      success: false,
+      errors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+    };
+  }
+
+  const input: GeneratedReportInput = parsed.data;
+
+  try {
+    const generatedReport = await getGeneratedReport({
+      period: input.period,
+      category: input.category,
+      startDate: input.date_from,
+      endDate: input.date_to,
+      program: input.program,
+    });
+
+    return { success: true, generatedReport };
+  } catch (err) {
+    console.error("[generateGeneratedReport] error:", err);
+    return {
+      success: false,
+      errors: { _form: ["Failed to generate report data."] },
+    };
+  }
+}
 
 export async function generateReport(rawInput: unknown) {
   const parsed = generateReportSchema.safeParse(rawInput);
@@ -53,7 +96,7 @@ export async function generateReport(rawInput: unknown) {
     const report = await db.report.create({
       data: {
         report_code,
-        type: input.type,
+        type: input.category,
         program: input.program === "ALL" ? null : input.program,
         date_from: input.date_from,
         date_to: input.date_to,
@@ -64,7 +107,7 @@ export async function generateReport(rawInput: unknown) {
     await db.auditLog.create({
       data: {
         user_id: staffUser.user_id,
-        action_details: `Generated report ${report_code} (${input.type})`,
+        action_details: `Generated report ${report_code} (${input.category})`,
       },
     });
 

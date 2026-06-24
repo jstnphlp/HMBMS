@@ -39,6 +39,7 @@ import {
 } from "@/core/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/core/ui/tabs";
 import { Textarea } from "@/core/ui/textarea";
+import { CreateRequestDialog } from "@/features/recipients/components/recipients-page-content";
 import { allocateMilk, cancelMilkRequest, releaseMilk } from "../actions";
 import type {
   AvailableMilkSource,
@@ -553,12 +554,14 @@ function RequestTable({
   onAllocate,
   onRelease,
   onCancel,
+  onOpenRequest,
 }: {
   rows: DistributionRequest[];
   mode: "queue" | "ready" | "cancelled";
   onAllocate?: (request: DistributionRequest) => void;
   onRelease?: (request: DistributionRequest) => void;
   onCancel?: (request: DistributionRequest) => void;
+  onOpenRequest: (request: DistributionRequest) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-sm border border-border bg-popover">
@@ -578,7 +581,11 @@ function RequestTable({
         </TableHeader>
         <TableBody>
           {rows.map((request) => (
-            <TableRow key={request.request_id}>
+            <TableRow
+              key={request.request_id}
+              className="cursor-pointer"
+              onClick={() => onOpenRequest(request)}
+            >
               <TableCell className="font-mono text-xs">{request.request_no}</TableCell>
               <TableCell>{request.recipient_name}</TableCell>
               <TableCell>{request.beneficiary_name}</TableCell>
@@ -602,17 +609,37 @@ function RequestTable({
               <TableCell className="text-right">
                 <div className="flex justify-end gap-2">
                   {mode === "queue" && (
-                    <Button size="sm" variant="outline" onClick={() => onAllocate?.(request)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onAllocate?.(request);
+                      }}
+                    >
                       Allocate Milk
                     </Button>
                   )}
                   {mode === "ready" && (
-                    <Button size="sm" onClick={() => onRelease?.(request)}>
+                    <Button
+                      size="sm"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRelease?.(request);
+                      }}
+                    >
                       Release Milk
                     </Button>
                   )}
                   {mode !== "cancelled" && (
-                    <Button size="sm" variant="ghost" onClick={() => onCancel?.(request)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onCancel?.(request);
+                      }}
+                    >
                       Cancel
                     </Button>
                   )}
@@ -633,7 +660,13 @@ function RequestTable({
   );
 }
 
-function ReleasedTable({ rows }: { rows: DispensingLogbookEntry[] }) {
+function ReleasedTable({
+  rows,
+  onOpenRequest,
+}: {
+  rows: DispensingLogbookEntry[];
+  onOpenRequest: (request: DistributionRequest) => void;
+}) {
   return (
     <div className="overflow-x-auto rounded-sm border border-border bg-popover">
       <Table>
@@ -651,7 +684,11 @@ function ReleasedTable({ rows }: { rows: DispensingLogbookEntry[] }) {
         </TableHeader>
         <TableBody>
           {rows.map((row) => (
-            <TableRow key={`${row.request_id}-${row.dispensing_id ?? "request"}`}>
+            <TableRow
+              key={`${row.request_id}-${row.dispensing_id ?? "request"}`}
+              className="cursor-pointer"
+              onClick={() => onOpenRequest(row)}
+            >
               <TableCell className="font-mono text-xs">
                 {row.dispensing_id ? `DIS-${String(row.dispensing_id).padStart(4, "0")}` : "--"}
               </TableCell>
@@ -689,6 +726,7 @@ export function DistributionPageContent({ data }: DistributionPageContentProps) 
   const [allocationTarget, setAllocationTarget] = useState<DistributionRequest | null>(null);
   const [releaseTarget, setReleaseTarget] = useState<DistributionRequest | null>(null);
   const [cancelTarget, setCancelTarget] = useState<DistributionRequest | null>(null);
+  const [detailsTarget, setDetailsTarget] = useState<DistributionRequest | null>(null);
   const metricCards: { label: string; value: number; Icon: ElementType }[] = [
     { label: "Queued", value: data.queue.length, Icon: ClipboardList },
     { label: "Ready", value: data.ready.length, Icon: Truck },
@@ -797,6 +835,7 @@ export function DistributionPageContent({ data }: DistributionPageContentProps) 
             mode="queue"
             onAllocate={setAllocationTarget}
             onCancel={setCancelTarget}
+            onOpenRequest={setDetailsTarget}
           />
         </TabsContent>
         <TabsContent value="ready">
@@ -805,13 +844,18 @@ export function DistributionPageContent({ data }: DistributionPageContentProps) 
             mode="ready"
             onRelease={setReleaseTarget}
             onCancel={setCancelTarget}
+            onOpenRequest={setDetailsTarget}
           />
         </TabsContent>
         <TabsContent value="released">
-          <ReleasedTable rows={released} />
+          <ReleasedTable rows={released} onOpenRequest={setDetailsTarget} />
         </TabsContent>
         <TabsContent value="cancelled">
-          <RequestTable rows={cancelled} mode="cancelled" />
+          <RequestTable
+            rows={cancelled}
+            mode="cancelled"
+            onOpenRequest={setDetailsTarget}
+          />
         </TabsContent>
       </Tabs>
 
@@ -835,6 +879,14 @@ export function DistributionPageContent({ data }: DistributionPageContentProps) 
         open={!!cancelTarget}
         onOpenChange={(open) => {
           if (!open) setCancelTarget(null);
+        }}
+      />
+      <CreateRequestDialog
+        recipient={detailsTarget?.recipient_detail ?? null}
+        request={detailsTarget?.request_detail ?? null}
+        open={!!detailsTarget}
+        onOpenChange={(open) => {
+          if (!open) setDetailsTarget(null);
         }}
       />
     </div>

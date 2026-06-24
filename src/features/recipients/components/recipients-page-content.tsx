@@ -2,12 +2,12 @@
 
 import { useMemo, useState, useTransition } from "react";
 import type { ElementType } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Baby,
   ClipboardList,
   Clock,
-  History,
   Plus,
   Search,
   User,
@@ -50,13 +50,32 @@ import {
 } from "@/core/ui/table";
 import { Textarea } from "@/core/ui/textarea";
 import { cn } from "@/core/utils/cn";
-import { createMilkRequest, createRecipient } from "../actions";
-import type { RecipientListItem, RecipientMetrics } from "../queries";
+import {
+  addBeneficiary,
+  cancelRecipientMilkRequest,
+  createMilkRequest,
+  createRecipient,
+  updateBeneficiary,
+  updateRecipient,
+  updateMilkRequest,
+} from "../actions";
+import type {
+  RecipientListItem,
+  RecipientMetrics,
+  RecipientRequestSummary,
+  RecipientBeneficiarySummary,
+} from "../queries";
 
 type RecipientsPageContentProps = {
   metrics: RecipientMetrics;
   recipients: RecipientListItem[];
 };
+
+const dialogContentClass =
+  "my-6 flex max-h-[80dvh] w-[95vw] flex-col gap-0 overflow-hidden p-0";
+const dialogHeaderClass = "shrink-0 border-b border-border px-6 py-5 pr-12";
+const dialogBodyClass = "min-h-0 flex-1 overscroll-contain overflow-y-auto px-6 py-5 pb-8";
+const dialogFooterClass = "shrink-0 border-t border-border bg-background px-6 py-4";
 
 function formatDate(iso: string | null) {
   if (!iso) return "--";
@@ -90,6 +109,7 @@ function AddRecipientDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
   function handleSubmit(formData: FormData) {
     const raw = Object.fromEntries(formData.entries());
@@ -98,6 +118,7 @@ function AddRecipientDialog({
       const result = await createRecipient(raw);
       if (result.success) {
         toast.success("Recipient registered.");
+        router.refresh();
         onOpenChange(false);
       } else {
         toast.error(firstError(result));
@@ -107,16 +128,16 @@ function AddRecipientDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100vh-4rem)] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+      <DialogContent className={cn(dialogContentClass, "sm:max-w-5xl")}>
         <form action={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-12">
+          <DialogHeader className={dialogHeaderClass}>
             <DialogTitle>Add Recipient</DialogTitle>
             <DialogDescription>
               Register the requesting parent or guardian and the beneficiary who will consume the milk.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <div className={dialogBodyClass}>
             <div className="space-y-6">
               <section className="space-y-4">
                 <div className="flex items-center gap-2 text-sm font-semibold">
@@ -204,7 +225,7 @@ function AddRecipientDialog({
             </div>
           </div>
 
-          <DialogFooter className="shrink-0 border-t border-border bg-background px-6 py-4">
+          <DialogFooter className={dialogFooterClass}>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -218,7 +239,7 @@ function AddRecipientDialog({
   );
 }
 
-function CreateRequestDialog({
+function AddBeneficiaryDialog({
   recipient,
   open,
   onOpenChange,
@@ -228,6 +249,7 @@ function CreateRequestDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
   if (!recipient) return null;
   const currentRecipient = recipient;
@@ -236,18 +258,14 @@ function CreateRequestDialog({
     const raw = Object.fromEntries(formData.entries());
 
     startTransition(async () => {
-      const result = await createMilkRequest({
+      const result = await addBeneficiary({
         ...raw,
         recipient_id: currentRecipient.recipient_id,
-        profile_complete: formData.has("profile_complete"),
-        beneficiary_complete: formData.has("beneficiary_complete"),
-        reason_provided: formData.has("reason_provided"),
-        volume_entered: formData.has("volume_entered"),
-        staff_approved: formData.has("staff_approved"),
       });
 
       if (result.success) {
-        toast.success(result.message ?? "Milk request saved.");
+        toast.success("Beneficiary added.");
+        router.refresh();
         onOpenChange(false);
       } else {
         toast.error(firstError(result));
@@ -257,17 +275,523 @@ function CreateRequestDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="my-8 flex max-h-[calc(100vh-4rem)] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+      <DialogContent className={cn(dialogContentClass, "sm:max-w-2xl")}>
         <form action={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-12">
-            <DialogTitle>Create Milk Request</DialogTitle>
+          <DialogHeader className={dialogHeaderClass}>
+            <DialogTitle>Add Beneficiary</DialogTitle>
             <DialogDescription>
-              {currentRecipient.full_name}. Complete required checklist items before queueing.
+              Add another baby under {currentRecipient.full_name}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className={cn(dialogBodyClass, "grid gap-4 md:grid-cols-2")}>
+            <div>
+              <Label htmlFor="add_beneficiary_name">Baby name</Label>
+              <Input
+                id="add_beneficiary_name"
+                name="beneficiary_name"
+                required
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="add_beneficiary_birthdate">Date of birth</Label>
+              <Input
+                id="add_beneficiary_birthdate"
+                name="beneficiary_birthdate"
+                type="date"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="add_beneficiary_sex">Sex</Label>
+              <Input id="add_beneficiary_sex" name="beneficiary_sex" className="mt-1" />
+            </div>
+            <div>
+              <Label htmlFor="add_beneficiary_birth_weight">Birth weight</Label>
+              <Input
+                id="add_beneficiary_birth_weight"
+                name="beneficiary_birth_weight"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="add_beneficiary_gestational_age">Gestational age</Label>
+              <Input
+                id="add_beneficiary_gestational_age"
+                name="beneficiary_gestational_age"
+                className="mt-1"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Label htmlFor="add_beneficiary_medical_condition">
+                Medical condition / reason context
+              </Label>
+              <Textarea
+                id="add_beneficiary_medical_condition"
+                name="beneficiary_medical_condition"
+                className="mt-1"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Label htmlFor="add_beneficiary_notes">Beneficiary notes</Label>
+              <Textarea
+                id="add_beneficiary_notes"
+                name="beneficiary_notes"
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter className={dialogFooterClass}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isPending}>
+              {isPending ? "Saving..." : "Save Beneficiary"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditBeneficiaryDialog({
+  recipient,
+  beneficiary,
+  open,
+  onOpenChange,
+}: {
+  recipient: RecipientListItem | null;
+  beneficiary: RecipientBeneficiarySummary | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+
+  if (!recipient || !beneficiary) return null;
+  const currentRecipient = recipient;
+  const currentBeneficiary = beneficiary;
+
+  function handleSubmit(formData: FormData) {
+    const raw = Object.fromEntries(formData.entries());
+
+    startTransition(async () => {
+      const result = await updateBeneficiary({
+        ...raw,
+        recipient_id: currentRecipient.recipient_id,
+        beneficiary_id: currentBeneficiary.beneficiary_id,
+      });
+
+      if (result.success) {
+        toast.success("Beneficiary updated.");
+        router.refresh();
+        onOpenChange(false);
+      } else {
+        toast.error(firstError(result));
+      }
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        key={currentBeneficiary.beneficiary_id}
+        className={cn(dialogContentClass, "sm:max-w-2xl")}
+      >
+        <form action={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader className={dialogHeaderClass}>
+            <DialogTitle>Edit Beneficiary</DialogTitle>
+            <DialogDescription>
+              Update beneficiary details under {currentRecipient.full_name}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className={cn(dialogBodyClass, "grid gap-4 md:grid-cols-2")}>
+            <div>
+              <Label htmlFor="edit_beneficiary_name">Baby name</Label>
+              <Input
+                id="edit_beneficiary_name"
+                name="beneficiary_name"
+                defaultValue={currentBeneficiary.name}
+                required
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_beneficiary_birthdate">Date of birth</Label>
+              <Input
+                id="edit_beneficiary_birthdate"
+                name="beneficiary_birthdate"
+                type="date"
+                defaultValue={currentBeneficiary.birthdate?.split("T")[0] ?? ""}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_beneficiary_sex">Sex</Label>
+              <Input
+                id="edit_beneficiary_sex"
+                name="beneficiary_sex"
+                defaultValue={currentBeneficiary.sex ?? ""}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_beneficiary_birth_weight">Birth weight</Label>
+              <Input
+                id="edit_beneficiary_birth_weight"
+                name="beneficiary_birth_weight"
+                defaultValue={currentBeneficiary.birth_weight ?? ""}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_beneficiary_gestational_age">Gestational age</Label>
+              <Input
+                id="edit_beneficiary_gestational_age"
+                name="beneficiary_gestational_age"
+                defaultValue={currentBeneficiary.gestational_age ?? ""}
+                className="mt-1"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Label htmlFor="edit_beneficiary_medical_condition">
+                Medical condition / reason context
+              </Label>
+              <Textarea
+                id="edit_beneficiary_medical_condition"
+                name="beneficiary_medical_condition"
+                defaultValue={currentBeneficiary.medical_condition ?? ""}
+                className="mt-1"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <Label htmlFor="edit_beneficiary_notes">Beneficiary notes</Label>
+              <Textarea
+                id="edit_beneficiary_notes"
+                name="beneficiary_notes"
+                defaultValue={currentBeneficiary.notes ?? ""}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter className={dialogFooterClass}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isPending}>
+              {isPending ? "Saving..." : "Save Beneficiary"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditRecipientDialog({
+  recipient,
+  open,
+  onOpenChange,
+}: {
+  recipient: RecipientListItem | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+
+  if (!recipient) return null;
+  const currentRecipient = recipient;
+
+  function handleSubmit(formData: FormData) {
+    const raw = Object.fromEntries(formData.entries());
+
+    startTransition(async () => {
+      const result = await updateRecipient({
+        ...raw,
+        recipient_id: currentRecipient.recipient_id,
+      });
+
+      if (result.success) {
+        toast.success("Recipient updated.");
+        router.refresh();
+        onOpenChange(false);
+      } else {
+        toast.error(firstError(result));
+      }
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        key={currentRecipient.recipient_id}
+        className={cn(dialogContentClass, "sm:max-w-4xl")}
+      >
+        <form action={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader className={dialogHeaderClass}>
+            <DialogTitle>Edit Recipient</DialogTitle>
+            <DialogDescription>
+              Update profile details for {currentRecipient.display_id}.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <div className={dialogBodyClass}>
             <div className="space-y-6">
+              <section className="space-y-4">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <User className="size-4 text-primary" />
+                  Recipient Profile
+                </div>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <Label htmlFor="edit_first_name">First name</Label>
+                    <Input
+                      id="edit_first_name"
+                      name="first_name"
+                      defaultValue={currentRecipient.first_name}
+                      required
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit_middle_name">Middle name</Label>
+                    <Input
+                      id="edit_middle_name"
+                      name="middle_name"
+                      defaultValue={currentRecipient.middle_name ?? ""}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit_last_name">Last name</Label>
+                    <Input
+                      id="edit_last_name"
+                      name="last_name"
+                      defaultValue={currentRecipient.last_name}
+                      required
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit_contact_no">Contact no.</Label>
+                    <Input
+                      id="edit_contact_no"
+                      name="contact_no"
+                      defaultValue={currentRecipient.contact_no}
+                      required
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit_relationship_to_beneficiary">
+                      Relationship
+                    </Label>
+                    <Input
+                      id="edit_relationship_to_beneficiary"
+                      name="relationship_to_beneficiary"
+                      defaultValue={currentRecipient.relationship_to_beneficiary}
+                      required
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit_status">Status</Label>
+                    <Select name="status" defaultValue={currentRecipient.status}>
+                      <SelectTrigger id="edit_status" className="mt-1 w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ACTIVE">Active</SelectItem>
+                        <SelectItem value="INACTIVE">Inactive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="md:col-span-3">
+                    <Label htmlFor="edit_address">Address</Label>
+                    <Input
+                      id="edit_address"
+                      name="address"
+                      defaultValue={currentRecipient.address}
+                      required
+                      className="mt-1"
+                    />
+                  </div>
+                  <div className="md:col-span-3">
+                    <Label htmlFor="edit_notes">Recipient notes</Label>
+                    <Textarea
+                      id="edit_notes"
+                      name="notes"
+                      defaultValue={currentRecipient.notes ?? ""}
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3 border-t border-border pt-5">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <Baby className="size-4 text-primary" />
+                  Beneficiaries
+                </div>
+                {currentRecipient.beneficiaries.length === 0 ? (
+                  <div className="rounded-sm border border-dashed border-border p-4 text-sm text-muted-foreground">
+                    No beneficiaries recorded.
+                  </div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {currentRecipient.beneficiaries.map((beneficiary) => (
+                      <div
+                        key={beneficiary.beneficiary_id}
+                        className="rounded-sm border border-border p-3 text-sm"
+                      >
+                        <div className="font-medium">{beneficiary.name}</div>
+                        <div className="text-muted-foreground">
+                          DOB {formatDate(beneficiary.birthdate)} -{" "}
+                          {beneficiary.sex ?? "Sex not set"}
+                        </div>
+                        {beneficiary.notes && (
+                          <p className="mt-2 text-muted-foreground">
+                            {beneficiary.notes}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          </div>
+
+          <DialogFooter className={dialogFooterClass}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isPending}>
+              {isPending ? "Saving..." : "Save Recipient"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function CreateRequestDialog({
+  recipient,
+  request,
+  open,
+  onOpenChange,
+}: {
+  recipient: RecipientListItem | null;
+  request?: RecipientRequestSummary | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+
+  if (!recipient) return null;
+  const currentRecipient = recipient;
+  const currentRequest = request ?? null;
+  const readOnly =
+    currentRequest?.status === "RELEASED" || currentRequest?.status === "CANCELLED";
+  const hasBeneficiaries = currentRecipient.beneficiaries.length > 0;
+
+  function handleSubmit(formData: FormData) {
+    const raw = Object.fromEntries(formData.entries());
+
+    startTransition(async () => {
+      const payload = {
+        ...raw,
+        recipient_id: currentRecipient.recipient_id,
+        profile_complete: formData.has("profile_complete"),
+        beneficiary_complete: formData.has("beneficiary_complete"),
+        reason_provided: formData.has("reason_provided"),
+        volume_entered: formData.has("volume_entered"),
+        staff_approved: formData.has("staff_approved"),
+      };
+      const result = currentRequest
+        ? await updateMilkRequest({
+            ...payload,
+            request_id: currentRequest.request_id,
+          })
+        : await createMilkRequest(payload);
+
+      if (result.success) {
+        toast.success(result.message ?? "Milk request saved.");
+        router.refresh();
+        onOpenChange(false);
+      } else {
+        toast.error(firstError(result));
+      }
+    });
+  }
+
+  function handleCancelRequest() {
+    if (!currentRequest) return;
+    const reason = window.prompt("Cancellation reason");
+    if (!reason?.trim()) return;
+
+    startTransition(async () => {
+      const result = await cancelRecipientMilkRequest({
+        request_id: currentRequest.request_id,
+        cancellation_reason: reason,
+      });
+
+      if (result.success) {
+        toast.success("Request cancelled.");
+        router.refresh();
+        onOpenChange(false);
+      } else {
+        toast.error(firstError(result));
+      }
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        key={currentRequest?.request_id ?? "new"}
+        className={cn(dialogContentClass, "sm:max-w-5xl")}
+      >
+        <form action={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader className={dialogHeaderClass}>
+            <DialogTitle>
+              {currentRequest ? "Milk Request Details" : "Create Milk Request"}
+            </DialogTitle>
+            <DialogDescription>
+              {currentRecipient.full_name}
+              {currentRequest ? ` - ${currentRequest.request_no}` : ""}. Complete required checklist items before queueing.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className={dialogBodyClass}>
+            <div className="space-y-6">
+              {!hasBeneficiaries && (
+                <div className="rounded-sm border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+                  Add a beneficiary before creating a milk request.
+                </div>
+              )}
+              {currentRequest && (
+                <section className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-sm border border-border p-3 text-sm">
+                    <div className="text-xs text-muted-foreground">Request No.</div>
+                    <div className="font-mono">{currentRequest.request_no}</div>
+                  </div>
+                  <div className="rounded-sm border border-border p-3 text-sm">
+                    <div className="text-xs text-muted-foreground">Status</div>
+                    <Badge className={statusClass(currentRequest.status)}>
+                      {currentRequest.status.replaceAll("_", " ")}
+                    </Badge>
+                  </div>
+                  <div className="rounded-sm border border-border p-3 text-sm">
+                    <div className="text-xs text-muted-foreground">Created</div>
+                    <div>{formatDate(currentRequest.created_at)}</div>
+                  </div>
+                </section>
+              )}
               <section className="space-y-4">
                 <div className="text-sm font-semibold">Request details</div>
                 <div className="grid gap-4 md:grid-cols-3">
@@ -277,7 +801,14 @@ function CreateRequestDialog({
                   </div>
                   <div>
                     <Label htmlFor="beneficiary_id">Beneficiary</Label>
-                    <Select name="beneficiary_id" defaultValue={currentRecipient.beneficiaries[0]?.beneficiary_id.toString()}>
+                    <Select
+                      name="beneficiary_id"
+                      defaultValue={
+                        currentRequest?.beneficiary_id.toString() ??
+                        currentRecipient.beneficiaries[0]?.beneficiary_id.toString()
+                      }
+                      disabled={readOnly || !hasBeneficiaries}
+                    >
                       <SelectTrigger id="beneficiary_id" className="mt-1 w-full">
                         <SelectValue placeholder="Select beneficiary" />
                       </SelectTrigger>
@@ -295,11 +826,24 @@ function CreateRequestDialog({
                   </div>
                   <div>
                     <Label htmlFor="requested_volume">Requested volume (mL)</Label>
-                    <Input id="requested_volume" name="requested_volume" type="number" min="1" step="1" required className="mt-1" />
+                    <Input
+                      id="requested_volume"
+                      name="requested_volume"
+                      type="number"
+                      min="0"
+                      step="1"
+                      defaultValue={currentRequest?.requested_volume ?? ""}
+                      readOnly={readOnly}
+                      className="mt-1"
+                    />
                   </div>
                   <div>
                     <Label htmlFor="priority">Priority</Label>
-                    <Select name="priority" defaultValue="NORMAL">
+                    <Select
+                      name="priority"
+                      defaultValue={currentRequest?.priority ?? "NORMAL"}
+                      disabled={readOnly}
+                    >
                       <SelectTrigger id="priority" className="mt-1 w-full">
                         <SelectValue />
                       </SelectTrigger>
@@ -313,15 +857,34 @@ function CreateRequestDialog({
                   </div>
                   <div>
                     <Label htmlFor="needed_by">Needed by</Label>
-                    <Input id="needed_by" name="needed_by" type="date" className="mt-1" />
+                    <Input
+                      id="needed_by"
+                      name="needed_by"
+                      type="date"
+                      defaultValue={currentRequest?.needed_by?.split("T")[0] ?? ""}
+                      readOnly={readOnly}
+                      className="mt-1"
+                    />
                   </div>
                   <div className="md:col-span-3">
                     <Label htmlFor="reason">Reason for request</Label>
-                    <Textarea id="reason" name="reason" required className="mt-1" />
+                    <Textarea
+                      id="reason"
+                      name="reason"
+                      defaultValue={currentRequest?.reason ?? ""}
+                      readOnly={readOnly}
+                      className="mt-1"
+                    />
                   </div>
                   <div className="md:col-span-3">
                     <Label htmlFor="remarks">Remarks</Label>
-                    <Textarea id="remarks" name="remarks" className="mt-1" />
+                    <Textarea
+                      id="remarks"
+                      name="remarks"
+                      defaultValue={currentRequest?.remarks ?? ""}
+                      readOnly={readOnly}
+                      className="mt-1"
+                    />
                   </div>
                 </div>
               </section>
@@ -329,7 +892,7 @@ function CreateRequestDialog({
               <section className="space-y-3 border-t border-border pt-5">
                 <div className="text-sm font-semibold">Requirements checklist</div>
                 <div className="grid gap-3 rounded-sm border border-border bg-muted/40 p-4 md:grid-cols-2">
-                  {[
+                  {[  
                     ["profile_complete", "Recipient profile complete"],
                     ["beneficiary_complete", "Beneficiary information complete"],
                     ["reason_provided", "Reason for request provided"],
@@ -337,7 +900,26 @@ function CreateRequestDialog({
                     ["staff_approved", "Staff approved"],
                   ].map(([name, label]) => (
                     <label key={name} className="flex items-center gap-2 text-sm">
-                      <Checkbox name={name} />
+                      <Checkbox
+                        name={name}
+                        defaultChecked={
+                          currentRequest
+                            ? Boolean(
+                                currentRequest[
+                                  name as keyof Pick<
+                                    RecipientRequestSummary,
+                                    | "profile_complete"
+                                    | "beneficiary_complete"
+                                    | "reason_provided"
+                                    | "volume_entered"
+                                    | "staff_approved"
+                                  >
+                                ]
+                              )
+                            : false
+                        }
+                        disabled={readOnly}
+                      />
                       {label}
                     </label>
                   ))}
@@ -346,13 +928,25 @@ function CreateRequestDialog({
             </div>
           </div>
 
-          <DialogFooter className="shrink-0 border-t border-border bg-background px-6 py-4">
+          <DialogFooter className={dialogFooterClass}>
+            {currentRequest && currentRequest.status !== "RELEASED" && currentRequest.status !== "CANCELLED" && (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isPending}
+                onClick={handleCancelRequest}
+              >
+                Cancel Request
+              </Button>
+            )}
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              Close
             </Button>
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Saving..." : "Save Request"}
-            </Button>
+            {!readOnly && (
+              <Button type="submit" disabled={isPending || !hasBeneficiaries}>
+                {isPending ? "Saving..." : currentRequest ? "Save Changes" : "Save Request"}
+              </Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>
@@ -365,11 +959,19 @@ function DetailsPanel({
   open,
   onOpenChange,
   onCreateRequest,
+  onAddBeneficiary,
+  onEditRecipient,
+  onOpenBeneficiary,
+  onOpenRequest,
 }: {
   recipient: RecipientListItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreateRequest: () => void;
+  onAddBeneficiary: () => void;
+  onEditRecipient: () => void;
+  onOpenBeneficiary: (beneficiary: RecipientBeneficiarySummary) => void;
+  onOpenRequest: (request: RecipientRequestSummary) => void;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -384,9 +986,15 @@ function DetailsPanel({
             </SheetHeader>
             <div className="space-y-5 overflow-y-auto px-4 pb-4">
               <section className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Recipient Profile
-                </h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Recipient Profile
+                  </h3>
+                  <Button type="button" variant="outline" size="sm" onClick={onEditRecipient}>
+                    <User className="size-4" />
+                    Edit Recipient
+                  </Button>
+                </div>
                 <div className="rounded-sm border border-border p-3 text-sm">
                   <div>{recipient.contact_no}</div>
                   <div className="text-muted-foreground">{recipient.address}</div>
@@ -395,14 +1003,30 @@ function DetailsPanel({
               </section>
 
               <section className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Beneficiaries
-                </h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Beneficiaries
+                  </h3>
+                  <Button type="button" variant="outline" size="sm" onClick={onAddBeneficiary}>
+                    <Plus className="size-4" />
+                    Add Beneficiary
+                  </Button>
+                </div>
                 {recipient.beneficiaries.map((beneficiary) => (
-                  <div key={beneficiary.beneficiary_id} className="rounded-sm border border-border p-3 text-sm">
-                    <div className="font-medium">{beneficiary.name}</div>
-                    <div className="text-muted-foreground">
-                      DOB {formatDate(beneficiary.birthdate)} - {beneficiary.sex ?? "Sex not set"}
+                  <button
+                    key={beneficiary.beneficiary_id}
+                    type="button"
+                    className="block w-full rounded-sm border border-border p-3 text-left text-sm transition-colors hover:border-primary/40 hover:bg-muted/40"
+                    onClick={() => onOpenBeneficiary(beneficiary)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-medium">{beneficiary.name}</div>
+                        <div className="text-muted-foreground">
+                          DOB {formatDate(beneficiary.birthdate)} - {beneficiary.sex ?? "Sex not set"}
+                        </div>
+                      </div>
+                      <Baby className="mt-0.5 size-4 text-muted-foreground" />
                     </div>
                     <div className="text-muted-foreground">
                       Birth weight {beneficiary.birth_weight ?? "--"} - AOG {beneficiary.gestational_age ?? "--"}
@@ -410,7 +1034,7 @@ function DetailsPanel({
                     {beneficiary.medical_condition && (
                       <p className="mt-2 text-muted-foreground">{beneficiary.medical_condition}</p>
                     )}
-                  </div>
+                  </button>
                 ))}
               </section>
 
@@ -424,31 +1048,41 @@ function DetailsPanel({
                   </div>
                 ) : (
                   recipient.requests.map((request) => (
-                    <div key={request.request_id} className="rounded-sm border border-border p-3 text-sm">
+                    <button
+                      key={request.request_id}
+                      type="button"
+                      className="block w-full rounded-sm border border-border p-3 text-left text-sm transition-colors hover:border-primary/40 hover:bg-muted/40"
+                      onClick={() => onOpenRequest(request)}
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono text-xs">{request.request_no}</span>
                         <Badge className={statusClass(request.status)}>{request.status.replaceAll("_", " ")}</Badge>
                       </div>
                       <div className="mt-1 text-muted-foreground">
-                        {request.requested_volume.toLocaleString()} mL - {request.priority} - {formatDate(request.created_at)}
+                        {request.beneficiary_name} - {request.requested_volume.toLocaleString()} mL - {request.priority} - {formatDate(request.created_at)}
                       </div>
-                    </div>
+                      {["DRAFT", "INCOMPLETE"].includes(request.status) && (
+                        <div className="mt-2 text-xs font-medium text-primary">
+                          Continue / Edit Request
+                        </div>
+                      )}
+                    </button>
                   ))
                 )}
               </section>
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <Button variant="outline" disabled>
-                  <User className="size-4" />
-                  Edit Recipient
-                </Button>
-                <Button onClick={onCreateRequest}>
+              <div className="grid grid-cols-1 gap-2">
+                <Button
+                  onClick={onCreateRequest}
+                  disabled={recipient.beneficiaries.length === 0}
+                  title={
+                    recipient.beneficiaries.length === 0
+                      ? "Add a beneficiary before creating a milk request."
+                      : undefined
+                  }
+                >
                   <Plus className="size-4" />
                   Create Milk Request
-                </Button>
-                <Button variant="outline" disabled>
-                  <History className="size-4" />
-                  View History
                 </Button>
               </div>
             </div>
@@ -465,7 +1099,14 @@ export function RecipientsPageContent({
 }: RecipientsPageContentProps) {
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [beneficiaryOpen, setBeneficiaryOpen] = useState(false);
+  const [beneficiaryEditOpen, setBeneficiaryEditOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
+  const [selectedBeneficiary, setSelectedBeneficiary] =
+    useState<RecipientBeneficiarySummary | null>(null);
+  const [selectedRequest, setSelectedRequest] =
+    useState<RecipientRequestSummary | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const selectedRecipient =
@@ -569,7 +1210,11 @@ export function RecipientsPageContent({
                   <TableCell className="font-medium">{recipient.full_name}</TableCell>
                   <TableCell>{recipient.contact_no}</TableCell>
                   <TableCell className="max-w-64 truncate">{recipient.address}</TableCell>
-                  <TableCell>{recipient.beneficiaries[0]?.name ?? "--"}</TableCell>
+                  <TableCell>
+                    {recipient.beneficiaries.length > 0
+                      ? recipient.beneficiaries.map((beneficiary) => beneficiary.name).join(", ")
+                      : "--"}
+                  </TableCell>
                   <TableCell>
                     {recipient.latestRequest ? (
                       <Badge className={statusClass(recipient.latestRequest.status)}>
@@ -598,10 +1243,33 @@ export function RecipientsPageContent({
       </section>
 
       <AddRecipientDialog open={addOpen} onOpenChange={setAddOpen} />
+      <EditRecipientDialog
+        recipient={selectedRecipient}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+      />
       <CreateRequestDialog
         recipient={selectedRecipient}
+        request={selectedRequest}
         open={requestOpen}
-        onOpenChange={setRequestOpen}
+        onOpenChange={(open) => {
+          setRequestOpen(open);
+          if (!open) setSelectedRequest(null);
+        }}
+      />
+      <AddBeneficiaryDialog
+        recipient={selectedRecipient}
+        open={beneficiaryOpen}
+        onOpenChange={setBeneficiaryOpen}
+      />
+      <EditBeneficiaryDialog
+        recipient={selectedRecipient}
+        beneficiary={selectedBeneficiary}
+        open={beneficiaryEditOpen}
+        onOpenChange={(open) => {
+          setBeneficiaryEditOpen(open);
+          if (!open) setSelectedBeneficiary(null);
+        }}
       />
       <DetailsPanel
         recipient={selectedRecipient}
@@ -609,7 +1277,20 @@ export function RecipientsPageContent({
         onOpenChange={(open) => {
           if (!open) setSelectedId(null);
         }}
-        onCreateRequest={() => setRequestOpen(true)}
+        onCreateRequest={() => {
+          setSelectedRequest(null);
+          setRequestOpen(true);
+        }}
+        onAddBeneficiary={() => setBeneficiaryOpen(true)}
+        onEditRecipient={() => setEditOpen(true)}
+        onOpenBeneficiary={(beneficiary) => {
+          setSelectedBeneficiary(beneficiary);
+          setBeneficiaryEditOpen(true);
+        }}
+        onOpenRequest={(request) => {
+          setSelectedRequest(request);
+          setRequestOpen(true);
+        }}
       />
     </div>
   );
