@@ -19,6 +19,9 @@ import type { ReportWithUser } from "../queries";
 
 interface ReportsTableProps {
   reports: ReportWithUser[];
+  selectedReportId: number | null;
+  onSelectReport: (report: ReportWithUser) => void;
+  onExportReport: (report: ReportWithUser) => void;
 }
 
 function formatDateTime(date: Date) {
@@ -40,7 +43,12 @@ function formatDateRange(from: Date, to: Date) {
   return `${fmt.format(new Date(from))} – ${fmt.format(new Date(to))}`;
 }
 
-export function ReportsTable({ reports }: ReportsTableProps) {
+export function ReportsTable({
+  reports,
+  selectedReportId,
+  onSelectReport,
+  onExportReport,
+}: ReportsTableProps) {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -89,9 +97,11 @@ export function ReportsTable({ reports }: ReportsTableProps) {
               {reports.map((row, i) => (
                 <tr
                   key={row.report_id}
+                  onClick={() => onSelectReport(row)}
                   className={cn(
-                    "h-10 transition-colors hover:bg-muted",
-                    i % 2 === 1 && "bg-muted/40"
+                    "h-10 cursor-pointer transition-colors hover:bg-muted",
+                    selectedReportId === row.report_id && "bg-primary/10",
+                    selectedReportId !== row.report_id && i % 2 === 1 && "bg-muted/40"
                   )}
                 >
                   <td className="px-4 py-2 font-medium text-primary underline-offset-4 hover:underline cursor-pointer">
@@ -112,7 +122,10 @@ export function ReportsTable({ reports }: ReportsTableProps) {
                         size="icon-xs"
                         className="text-muted-foreground hover:text-primary"
                         title="View"
-                        disabled
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSelectReport(row);
+                        }}
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
@@ -121,7 +134,10 @@ export function ReportsTable({ reports }: ReportsTableProps) {
                         size="icon-xs"
                         className="text-muted-foreground hover:text-primary"
                         title="Download"
-                        disabled
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onExportReport(row);
+                        }}
                       >
                         <FileText className="h-4 w-4" />
                       </Button>
@@ -131,7 +147,10 @@ export function ReportsTable({ reports }: ReportsTableProps) {
                         className="text-muted-foreground hover:text-destructive"
                         title="Delete"
                         disabled={isPending && deletingId === row.report_id}
-                        onClick={() => handleDelete(row.report_id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDelete(row.report_id);
+                        }}
                       >
                         {isPending && deletingId === row.report_id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -162,7 +181,11 @@ export function ReportsTable({ reports }: ReportsTableProps) {
           {reports.map((row) => (
             <div
               key={row.report_id}
-              className="rounded border border-border bg-card p-3"
+              onClick={() => onSelectReport(row)}
+              className={cn(
+                "cursor-pointer rounded border border-border bg-card p-3",
+                selectedReportId === row.report_id && "border-primary bg-primary/10"
+              )}
             >
               <div className="mb-2 flex items-center justify-between">
                 <span className="font-medium text-primary">
@@ -178,10 +201,24 @@ export function ReportsTable({ reports }: ReportsTableProps) {
                 {row.user.email}
               </div>
               <div className="flex gap-1">
-                <Button variant="ghost" size="icon-xs" disabled>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelectReport(row);
+                  }}
+                >
                   <Eye className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="icon-xs" disabled>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onExportReport(row);
+                  }}
+                >
                   <FileText className="h-4 w-4" />
                 </Button>
                 <Button
@@ -189,7 +226,10 @@ export function ReportsTable({ reports }: ReportsTableProps) {
                   size="icon-xs"
                   className="hover:text-destructive"
                   disabled={isPending && deletingId === row.report_id}
-                  onClick={() => handleDelete(row.report_id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleDelete(row.report_id);
+                  }}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>

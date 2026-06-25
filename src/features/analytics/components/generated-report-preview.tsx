@@ -143,12 +143,18 @@ export function GeneratedReportPreview({
       <CardHeader className="border-b border-border">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
+            {report.reportCode && (
+              <div className="mb-2 text-xs font-medium text-primary">
+                Viewing saved report {report.reportCode}
+              </div>
+            )}
             <CardTitle className="text-base">{report.title}</CardTitle>
             <div className="mt-1 text-sm text-muted-foreground">
               {formatDate(report.dateFrom)} - {formatDate(report.dateTo)}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
               Generated {formatDateTime(report.generatedAt)}
+              {report.generatedBy ? ` by ${report.generatedBy}` : ""}
             </div>
           </div>
           <div className="flex gap-2">

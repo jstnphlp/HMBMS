@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const generateReportSchema = z.object({
+  period: z.enum(["DAILY", "WEEKLY", "MONTHLY", "YEARLY", "CUSTOM"]),
   category: z.enum([
     "ALL",
     "COLLECTION",
@@ -16,6 +17,7 @@ export const generateReportSchema = z.object({
     .default("ALL"),
   date_from: z.coerce.date(),
   date_to: z.coerce.date(),
+  report_data: z.unknown().optional(),
 });
 
 export type GenerateReportInput = z.infer<typeof generateReportSchema>;

@@ -233,6 +233,7 @@ model Recipient {
 
   beneficiaries Beneficiary[]
   milkRequests  MilkRequest[]
+  sms           SMS[]
 }
 
 model Collection {
@@ -460,6 +461,7 @@ model MilkRequest {
   releaser     User?                   @relation("MilkRequestReleasedBy", fields: [released_by], references: [user_id])
   allocations  MilkRequestAllocation[]
   dispensings  Dispensing[]
+  sms          SMS[]
 
   @@index([recipient_id])
   @@index([beneficiary_id])
@@ -526,13 +528,24 @@ model Disposal {
 model SMS {
   sms_id         Int       @id @default(autoincrement())
   beneficiary_id Int
+  recipient_id   Int?
+  milk_request_id Int?
+  phone_number   String?
   message        String
   status         SmsStatus @default(PENDING)
+  provider       String    @default("MANUAL")
+  notification_type String?
+  error_message  String?
   scheduled_at   DateTime
   sent_at        DateTime?
   retry          Int       @default(0)
 
   beneficiary Beneficiary @relation(fields: [beneficiary_id], references: [beneficiary_id])
+  recipient   Recipient?  @relation(fields: [recipient_id], references: [recipient_id])
+  milkRequest MilkRequest? @relation(fields: [milk_request_id], references: [request_id])
+
+  @@index([milk_request_id, provider, notification_type, status])
+  @@index([recipient_id])
 }
 
 model AuditLog {
@@ -548,9 +561,12 @@ model Report {
   report_id    Int      @id @default(autoincrement())
   report_code  String   @unique
   type         String
+  period       String?
+  report_title String?
   program      Program?
   date_from    DateTime
   date_to      DateTime
+  data         Json?
   generated_at DateTime @default(now())
   generated_by Int
 

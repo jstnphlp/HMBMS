@@ -13,10 +13,75 @@ import {
   getVolumeTrends,
   type ProgramDistSegment,
   type ReportWithUser,
+  type GeneratedReport,
+  type ReportCategory,
+  type ReportPeriod,
   type VolumeTrendPoint,
 } from "./queries";
 import type { GeneratedReportInput, GenerateReportInput } from "./schemas";
-import type { Report } from "@/generated/prisma/client";
+import type { Prisma, Report } from "@/generated/prisma/client";
+
+const REPORT_CATEGORIES: ReportCategory[] = [
+  "ALL",
+  "COLLECTION",
+  "PROCESSING",
+  "INVENTORY",
+  "DISPENSING",
+  "DISPOSAL",
+  "DONOR",
+  "RECIPIENT",
+];
+
+const REPORT_PERIODS: ReportPeriod[] = [
+  "DAILY",
+  "WEEKLY",
+  "MONTHLY",
+  "YEARLY",
+  "CUSTOM",
+];
+
+function isReportCategory(value: string): value is ReportCategory {
+  return REPORT_CATEGORIES.includes(value as ReportCategory);
+}
+
+function isReportPeriod(value: string | null | undefined): value is ReportPeriod {
+  return REPORT_PERIODS.includes(value as ReportPeriod);
+}
+
+function isGeneratedReportPayload(value: unknown): value is GeneratedReport {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "title" in value &&
+    "period" in value &&
+    "category" in value &&
+    "dateFrom" in value &&
+    "dateTo" in value &&
+    "generatedAt" in value
+  );
+}
+
+function withSavedMetadata(
+  report: GeneratedReport,
+  saved: {
+    report_id: number;
+    report_code: string;
+    generated_at: Date;
+    user: { email: string; full_name: string };
+  }
+): GeneratedReport {
+  return {
+    ...report,
+    reportId: saved.report_id,
+    reportCode: saved.report_code,
+    generatedAt: saved.generated_at.toISOString(),
+    generatedBy: saved.user.full_name || saved.user.email,
+  };
+}
+
+function toJsonPayload(report: GeneratedReport): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(report)) as Prisma.InputJsonValue;
+}
 
 type GenerateReportAndRefreshAnalyticsResult =
   | {
@@ -93,13 +158,26 @@ export async function generateReport(rawInput: unknown) {
     const count = await db.report.count();
     const report_code = `RPT-${new Date().getFullYear()}-${String(count + 1).padStart(3, "0")}`;
 
+    const generatedReport = isGeneratedReportPayload(input.report_data)
+      ? input.report_data
+      : await getGeneratedReport({
+          period: input.period,
+          category: input.category,
+          startDate: input.date_from,
+          endDate: input.date_to,
+          program: input.program,
+        });
+
     const report = await db.report.create({
       data: {
         report_code,
         type: input.category,
+        period: input.period,
+        report_title: generatedReport.title,
         program: input.program === "ALL" ? null : input.program,
         date_from: input.date_from,
         date_to: input.date_to,
+        data: toJsonPayload(generatedReport),
         generated_by: staffUser.user_id,
       },
     });
@@ -114,10 +192,10 @@ export async function generateReport(rawInput: unknown) {
     revalidatePath("/dashboard/analytics");
     return { success: true, data: report };
   } catch (err) {
-    console.error("[generateReport] error:", err);
+    console.error("[saveReport] failed:", err);
     return {
       success: false,
-      errors: { _form: [mapPrismaError(err)] },
+      errors: { _form: [`Failed to save report: ${mapPrismaError(err)}`] },
     };
   }
 }
@@ -192,6 +270,57 @@ export async function deleteReport(reportId: number) {
     return {
       success: false,
       errors: { _form: [mapPrismaError(err)] },
+    };
+  }
+}
+
+export async function loadSavedReport(reportId: number) {
+  try {
+    const report = await db.report.findUnique({
+      where: { report_id: reportId },
+      include: {
+        user: { select: { email: true, role: true, full_name: true } },
+      },
+    });
+
+    if (!report) {
+      return {
+        success: false,
+        errors: { _form: ["Saved report was not found."] },
+      };
+    }
+
+    if (isGeneratedReportPayload(report.data)) {
+      return {
+        success: true,
+        generatedReport: withSavedMetadata(report.data, report),
+      };
+    }
+
+    if (!isReportCategory(report.type)) {
+      return {
+        success: false,
+        errors: { _form: ["Saved report data is unavailable."] },
+      };
+    }
+
+    const generatedReport = await getGeneratedReport({
+      period: isReportPeriod(report.period) ? report.period : "CUSTOM",
+      category: report.type,
+      startDate: report.date_from,
+      endDate: report.date_to,
+      program: report.program ?? "ALL",
+    });
+
+    return {
+      success: true,
+      generatedReport: withSavedMetadata(generatedReport, report),
+    };
+  } catch (err) {
+    console.error("[loadSavedReport] error:", err);
+    return {
+      success: false,
+      errors: { _form: ["Saved report data is unavailable."] },
     };
   }
 }

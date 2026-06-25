@@ -775,7 +775,12 @@ export function CreateRequestDialog({
                 </div>
               )}
               {currentRequest && (
-                <section className="grid gap-3 md:grid-cols-3">
+                <section
+                  className={cn(
+                    "grid gap-3",
+                    currentRequest.sms_status ? "md:grid-cols-4" : "md:grid-cols-3"
+                  )}
+                >
                   <div className="rounded-sm border border-border p-3 text-sm">
                     <div className="text-xs text-muted-foreground">Request No.</div>
                     <div className="font-mono">{currentRequest.request_no}</div>
@@ -790,6 +795,12 @@ export function CreateRequestDialog({
                     <div className="text-xs text-muted-foreground">Created</div>
                     <div>{formatDate(currentRequest.created_at)}</div>
                   </div>
+                  {currentRequest.sms_status && (
+                    <div className="rounded-sm border border-border p-3 text-sm">
+                      <div className="text-xs text-muted-foreground">SMS</div>
+                      <div>{currentRequest.sms_status}</div>
+                    </div>
+                  )}
                 </section>
               )}
               <section className="space-y-4">

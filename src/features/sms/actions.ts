@@ -2,6 +2,7 @@
 
 import { db } from "@/core/db";
 import { sendSmsSchema, type SendSmsInput } from "./schemas";
+import { normalizePhilippineMobileNumber, sendTextBeeSms } from "./textbee";
 
 export async function sendSms(rawInput: unknown) {
   const parsed = sendSmsSchema.safeParse(rawInput);
@@ -11,46 +12,34 @@ export async function sendSms(rawInput: unknown) {
   }
 
   const input: SendSmsInput = parsed.data;
+  const phoneNumber = normalizePhilippineMobileNumber(input.phone_number);
 
-  const apiKey = process.env.TEXTBEE_API_KEY;
-  const deviceId = process.env.TEXTBEE_DEVICE_ID;
-
-  if (!apiKey || !deviceId) {
+  if (!phoneNumber) {
     return {
       success: false,
       errors: {
-        _form: [
-          "SMS service is not configured. Contact your administrator.",
-        ],
+        phone_number: ["Invalid Philippine phone number format."],
       },
     };
   }
 
   try {
-    const response = await fetch(
-      `https://api.textbee.dev/api/v1/gateway/devices/${deviceId}/send-sms`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-        },
-        body: JSON.stringify({
-          recipients: [input.phone_number],
-          message: input.message,
-        }),
-      }
-    );
+    const sent = await sendTextBeeSms({
+      phoneNumber,
+      message: input.message,
+    });
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error("TextBee API error:", response.status, errorBody);
+    if (!sent.success) {
+      console.error("TextBee API error:", sent.error);
 
       await db.sMS.create({
         data: {
           beneficiary_id: input.beneficiary_id,
+          phone_number: phoneNumber,
           message: input.message,
           status: "FAILED",
+          provider: "TEXTBEE",
+          error_message: sent.error,
           scheduled_at: new Date(),
         },
       });
@@ -58,9 +47,7 @@ export async function sendSms(rawInput: unknown) {
       return {
         success: false,
         errors: {
-          _form: [
-            `SMS delivery failed (HTTP ${response.status}). Please try again.`,
-          ],
+          _form: ["SMS delivery failed. Please try again."],
         },
       };
     }
@@ -68,8 +55,10 @@ export async function sendSms(rawInput: unknown) {
     await db.sMS.create({
       data: {
         beneficiary_id: input.beneficiary_id,
+        phone_number: phoneNumber,
         message: input.message,
         status: "SENT",
+        provider: "TEXTBEE",
         scheduled_at: new Date(),
         sent_at: new Date(),
       },
@@ -82,8 +71,11 @@ export async function sendSms(rawInput: unknown) {
     await db.sMS.create({
       data: {
         beneficiary_id: input.beneficiary_id,
+        phone_number: phoneNumber,
         message: input.message,
         status: "FAILED",
+        provider: "TEXTBEE",
+        error_message: error instanceof Error ? error.message : "SMS send error.",
         scheduled_at: new Date(),
       },
     });

@@ -9,7 +9,15 @@ import { ReportsTable } from "./reports-table";
 import {
   generateGeneratedReport,
   generateReportAndRefreshAnalytics,
+  loadSavedReport,
 } from "../actions";
+import {
+  downloadCsv,
+  isGeneratedReport,
+  reportToCsvRows,
+  rowsToCsv,
+  safeFilename,
+} from "../report-export";
 import { Card, CardContent, CardHeader } from "@/core/ui/card";
 import { Skeleton } from "@/core/ui/skeleton";
 import { toast } from "sonner";
@@ -152,6 +160,9 @@ export function AnalyticsView({
   const [generatedReport, setGeneratedReport] = useState<GeneratedReport | null>(
     null
   );
+  const [selectedSavedReportId, setSelectedSavedReportId] = useState<number | null>(
+    null
+  );
   const [isPending, startTransition] = useTransition();
   const [isSaving, startSaveTransition] = useTransition();
 
@@ -189,6 +200,7 @@ export function AnalyticsView({
       }
 
       setGeneratedReport(result.generatedReport);
+      setSelectedSavedReportId(null);
       setDateFrom(toDateInput(start));
       setDateTo(toDateInput(end));
       toast.success("Report preview generated.");
@@ -197,14 +209,21 @@ export function AnalyticsView({
 
   function handleSaveReport() {
     startSaveTransition(async () => {
-      const { start, end } = selectedRange();
+      if (!generatedReport) {
+        toast.error("No report selected to save.");
+        return;
+      }
+
+      const start = new Date(generatedReport.dateFrom);
+      const end = new Date(generatedReport.dateTo);
       if (start > end) {
         toast.error("Start date must be before or equal to end date.");
         return;
       }
 
       const result = await generateReportAndRefreshAnalytics({
-        category: reportCategory as
+        period: generatedReport.period,
+        category: generatedReport.category as
           | "ALL"
           | "COLLECTION"
           | "PROCESSING"
@@ -213,9 +232,14 @@ export function AnalyticsView({
           | "DISPOSAL"
           | "DONOR"
           | "RECIPIENT",
-        program: program as "ALL" | "SUPSUP_TODO" | "MILKY_WAY" | "MOMS_ACT",
+        program: (generatedReport.program ?? "ALL") as
+          | "ALL"
+          | "SUPSUP_TODO"
+          | "MILKY_WAY"
+          | "MOMS_ACT",
         date_from: start,
         date_to: end,
+        report_data: generatedReport,
       });
 
       if (result.success) {
@@ -230,6 +254,61 @@ export function AnalyticsView({
       setVolumeTrends(result.volumeTrends);
       setProgramDist(result.programDist);
       setReports(result.reports);
+    });
+  }
+
+  function handleSelectSavedReport(report: ReportWithUser) {
+    startTransition(async () => {
+      const result = await loadSavedReport(report.report_id);
+
+      if (!result.success || !result.generatedReport) {
+        const firstError = Object.values(result.errors ?? {}).flat()[0];
+        toast.error(firstError ?? "Saved report data is unavailable.");
+        return;
+      }
+
+      setGeneratedReport(result.generatedReport);
+      setSelectedSavedReportId(report.report_id);
+    });
+  }
+
+  function exportReport(report: GeneratedReport) {
+    const code = report.reportCode ?? "generated-report";
+    const csv = rowsToCsv(reportToCsvRows(report));
+    downloadCsv(`${safeFilename(code)}.csv`, csv);
+    toast.success("Report exported successfully.");
+  }
+
+  function handleExportCurrentReport() {
+    if (!generatedReport) {
+      toast.error("No report selected to export.");
+      return;
+    }
+
+    exportReport(generatedReport);
+  }
+
+  function handleExportSavedReport(report: ReportWithUser) {
+    if (isGeneratedReport(report.data)) {
+      exportReport({
+        ...report.data,
+        reportId: report.report_id,
+        reportCode: report.report_code,
+        generatedAt: report.generated_at.toISOString(),
+        generatedBy: report.user.full_name || report.user.email,
+      });
+      return;
+    }
+
+    startTransition(async () => {
+      const result = await loadSavedReport(report.report_id);
+      if (!result.success || !result.generatedReport) {
+        const firstError = Object.values(result.errors ?? {}).flat()[0];
+        toast.error(firstError ?? "Saved report data is unavailable.");
+        return;
+      }
+
+      exportReport(result.generatedReport);
     });
   }
 
@@ -276,7 +355,9 @@ export function AnalyticsView({
         isPending={isPending}
         onSaveReport={handleSaveReport}
         isSaving={isSaving}
-        canSave={Boolean(generatedReport)}
+        canSave={Boolean(generatedReport) && selectedSavedReportId === null}
+        onExportReport={handleExportCurrentReport}
+        canExport={Boolean(generatedReport)}
       />
       <GeneratedReportPreview report={generatedReport} />
       <div className={isPending ? "opacity-50 transition-opacity" : "transition-opacity"}>
@@ -286,7 +367,12 @@ export function AnalyticsView({
           <ProgramDistributionChart data={programDist} />
         </div>
       </div>
-      <ReportsTable reports={reports} />
+      <ReportsTable
+        reports={reports}
+        selectedReportId={selectedSavedReportId}
+        onSelectReport={handleSelectSavedReport}
+        onExportReport={handleExportSavedReport}
+      />
     </div>
   );
 }

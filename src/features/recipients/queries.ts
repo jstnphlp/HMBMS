@@ -23,6 +23,8 @@ export type RecipientRequestSummary = {
   cancellation_reason: string | null;
   created_at: string;
   released_at: string | null;
+  cancelled_at?: string | null;
+  sms_status?: string;
 };
 
 export type RecipientBeneficiarySummary = {

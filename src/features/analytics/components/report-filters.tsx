@@ -34,6 +34,8 @@ interface ReportFiltersProps {
   onSaveReport: () => void;
   isSaving: boolean;
   canSave: boolean;
+  onExportReport: () => void;
+  canExport: boolean;
 }
 
 export function ReportFilters({
@@ -58,6 +60,8 @@ export function ReportFilters({
   onSaveReport,
   isSaving,
   canSave,
+  onExportReport,
+  canExport,
 }: ReportFiltersProps) {
   const showRange = reportPeriod === "CUSTOM" || reportPeriod === "WEEKLY";
   const showDate = reportPeriod === "DAILY";
@@ -76,9 +80,15 @@ export function ReportFilters({
           </p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" size="sm" disabled>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!canExport}
+            onClick={onExportReport}
+            title={canExport ? "Export current displayed report" : "No report selected to export."}
+          >
             <Download className="h-4 w-4" />
-            Export All
+            Export
           </Button>
           <Button size="sm" disabled={!canSave || isSaving} onClick={onSaveReport}>
             <Plus className="h-4 w-4" />

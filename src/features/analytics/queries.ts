@@ -25,12 +25,15 @@ export type ReportWithUser = {
   report_id: number;
   report_code: string;
   type: string;
+  period: string | null;
+  report_title: string | null;
   program: string | null;
   date_from: Date;
   date_to: Date;
+  data: unknown;
   generated_at: Date;
   generated_by: number;
-  user: { email: string; role: string };
+  user: { email: string; role: string; full_name: string };
 };
 
 export type ReportCategory =
@@ -121,12 +124,16 @@ export type GeneratedRecipientReport = {
 };
 
 export type GeneratedReport = {
+  reportId?: number;
+  reportCode?: string;
   title: string;
   period: ReportPeriod;
   category: ReportCategory;
+  program?: string;
   dateFrom: string;
   dateTo: string;
   generatedAt: string;
+  generatedBy?: string;
   collection?: GeneratedCollectionReport;
   processing?: GeneratedProcessingReport;
   inventory?: GeneratedInventoryReport;
@@ -691,6 +698,7 @@ export async function getGeneratedReport({
     title: reportTitle(period, category, startDate),
     period,
     category,
+    program: program ?? "ALL",
     dateFrom: startDate.toISOString(),
     dateTo: endDate.toISOString(),
     generatedAt: new Date().toISOString(),
@@ -830,7 +838,7 @@ export async function getReports(): Promise<ReportWithUser[]> {
     take: 25,
     orderBy: { generated_at: "desc" },
     include: {
-      user: { select: { email: true, role: true } },
+      user: { select: { email: true, role: true, full_name: true } },
     },
   });
 }

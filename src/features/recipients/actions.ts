@@ -304,7 +304,7 @@ export async function createMilkRequest(rawInput: unknown) {
   }
 
   try {
-    const [recipient, beneficiary, duplicateActive] = await Promise.all([
+    const [recipient, beneficiary] = await Promise.all([
       db.recipient.findUnique({
         where: { recipient_id: input.recipient_id },
         select: { recipient_id: true },
@@ -316,14 +316,6 @@ export async function createMilkRequest(rawInput: unknown) {
         },
         select: { beneficiary_id: true },
       }),
-      db.milkRequest.findFirst({
-        where: {
-          recipient_id: input.recipient_id,
-          beneficiary_id: input.beneficiary_id,
-          status: { in: ["QUEUED", "READY_FOR_RELEASE"] },
-        },
-        select: { request_no: true, status: true },
-      }),
     ]);
 
     if (!recipient || !beneficiary) {
@@ -331,17 +323,6 @@ export async function createMilkRequest(rawInput: unknown) {
         success: false,
         errors: {
           _form: ["Recipient and beneficiary must exist before requesting milk."],
-        },
-      };
-    }
-
-    if (duplicateActive) {
-      return {
-        success: false,
-        errors: {
-          _form: [
-            `This recipient and beneficiary already have active request ${duplicateActive.request_no} (${duplicateActive.status}). Resolve it before creating another queued request.`,
-          ],
         },
       };
     }
@@ -528,20 +509,42 @@ export async function cancelRecipientMilkRequest(rawInput: unknown) {
       };
     }
 
-    await db.milkRequest.update({
-      where: { request_id: input.request_id },
-      data: {
-        status: "CANCELLED",
-        cancellation_reason: input.cancellation_reason,
-        cancelled_at: new Date(),
-        allocated_volume: 0,
-        allocations: {
-          updateMany: {
-            where: { status: "ALLOCATED" },
-            data: { status: "CANCELLED" },
-          },
+    await db.$transaction(async (tx) => {
+      const allocations = await tx.milkRequestAllocation.findMany({
+        where: { request_id: input.request_id, status: "ALLOCATED" },
+        select: {
+          allocation_id: true,
+          batch_id: true,
+          volume: true,
         },
-      },
+      });
+
+      for (const allocation of allocations) {
+        await tx.inventory.update({
+          where: { batch_id: allocation.batch_id },
+          data: { available_vol: { increment: allocation.volume } },
+        });
+
+        await tx.batch.updateMany({
+          where: { batch_id: allocation.batch_id, status: "DISPENSED" },
+          data: { status: "AVAILABLE" },
+        });
+
+        await tx.milkRequestAllocation.update({
+          where: { allocation_id: allocation.allocation_id },
+          data: { status: "CANCELLED" },
+        });
+      }
+
+      await tx.milkRequest.update({
+        where: { request_id: input.request_id },
+        data: {
+          status: "CANCELLED",
+          cancellation_reason: input.cancellation_reason,
+          cancelled_at: new Date(),
+          allocated_volume: 0,
+        },
+      });
     });
 
     await db.auditLog.create({

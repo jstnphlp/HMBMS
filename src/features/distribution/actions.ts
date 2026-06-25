@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/core/db";
+import type { Prisma } from "@/generated/prisma/client";
 import { getCurrentUser } from "@/features/auth/actions";
 import { mapPrismaError } from "@/core/utils/prisma-error";
 import {
@@ -10,6 +11,9 @@ import {
   releaseMilkSchema,
   type AllocateMilkInput,
 } from "./schemas";
+import { sendMilkReadySms } from "./sms-notifications";
+
+type SourceSafetyClient = Pick<typeof db, "batch">;
 
 function clean(value?: string | null) {
   return value && value.trim().length > 0 ? value.trim() : null;
@@ -37,9 +41,9 @@ function requiredChecklistComplete(request: {
   );
 }
 
-async function isSafeSource(batchId: number) {
+async function isSafeSource(batchId: number, client: SourceSafetyClient = db) {
   const now = new Date();
-  const batch = await db.batch.findUnique({
+  const batch = await client.batch.findUnique({
     where: { batch_id: batchId },
     include: {
       inventory: { select: { available_vol: true } },
@@ -79,6 +83,39 @@ async function refreshDistributionPaths() {
   revalidatePath("/dashboard/distribution");
   revalidatePath("/dashboard/recipients");
   revalidatePath("/dashboard/inventory");
+}
+
+async function restoreAllocatedMilk(
+  tx: Prisma.TransactionClient,
+  requestId: number
+) {
+  const allocations = await tx.milkRequestAllocation.findMany({
+    where: { request_id: requestId, status: "ALLOCATED" },
+    select: {
+      allocation_id: true,
+      batch_id: true,
+      volume: true,
+    },
+  });
+
+  for (const allocation of allocations) {
+    await tx.inventory.update({
+      where: { batch_id: allocation.batch_id },
+      data: { available_vol: { increment: allocation.volume } },
+    });
+
+    await tx.batch.updateMany({
+      where: { batch_id: allocation.batch_id, status: "DISPENSED" },
+      data: { status: "AVAILABLE" },
+    });
+
+    await tx.milkRequestAllocation.update({
+      where: { allocation_id: allocation.allocation_id },
+      data: { status: "CANCELLED" },
+    });
+  }
+
+  return allocations.reduce((sum, allocation) => sum + allocation.volume, 0);
 }
 
 export async function allocateMilk(rawInput: unknown) {
@@ -134,22 +171,36 @@ export async function allocateMilk(rawInput: unknown) {
         throw new Error(`Allocation exceeds remaining request volume (${remainingNeed.toLocaleString()} mL).`);
       }
 
-      await tx.milkRequestAllocation.deleteMany({
-        where: { request_id: request.request_id, status: "ALLOCATED" },
-      });
+      await restoreAllocatedMilk(tx, request.request_id);
 
       for (const [batchId, volume] of allocationByBatch) {
-        const safe = await isSafeSource(batchId);
+        const safe = await isSafeSource(batchId, tx);
         if (!safe) {
           throw new Error("Selected milk is no longer available. Please refresh allocation.");
         }
 
-        const inventory = await tx.inventory.findUnique({
+        const deduction = await tx.inventory.updateMany({
+          where: {
+            batch_id: batchId,
+            available_vol: { gte: volume },
+          },
+          data: { available_vol: { decrement: volume } },
+        });
+
+        if (deduction.count !== 1) {
+          throw new Error("Selected milk is no longer available. Please refresh allocation.");
+        }
+
+        const updatedInventory = await tx.inventory.findUnique({
           where: { batch_id: batchId },
           select: { available_vol: true },
         });
-        if (!inventory || inventory.available_vol < volume) {
-          throw new Error("Selected milk is no longer available. Please refresh allocation.");
+
+        if ((updatedInventory?.available_vol ?? 0) <= 0) {
+          await tx.batch.update({
+            where: { batch_id: batchId },
+            data: { status: "DISPENSED" },
+          });
         }
 
         await tx.milkRequestAllocation.create({
@@ -175,9 +226,31 @@ export async function allocateMilk(rawInput: unknown) {
           notification_status:
             nextStatus === "READY_FOR_RELEASE" ? "READY_FOR_PICKUP" : "NOT_READY",
         },
-        select: { request_no: true, status: true },
+        select: {
+          request_id: true,
+          request_no: true,
+          recipient_id: true,
+          beneficiary_id: true,
+          status: true,
+          recipient: { select: { contact_no: true } },
+        },
       });
     });
+
+    const smsResult =
+      result.status === "READY_FOR_RELEASE"
+        ? await sendMilkReadySms(result).catch((error) => {
+            console.error("[allocateMilk] SMS notification error:", error);
+            return {
+              status: "FAILED" as const,
+              message: "Milk allocated successfully, but SMS notification failed.",
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "SMS notification failed.",
+            };
+          })
+        : null;
 
     await db.auditLog.create({
       data: {
@@ -187,7 +260,12 @@ export async function allocateMilk(rawInput: unknown) {
     });
 
     await refreshDistributionPaths();
-    return { success: true, data: result };
+    return {
+      success: true,
+      data: result,
+      message: smsResult?.message ?? "Milk allocated successfully.",
+      warning: smsResult?.status === "FAILED" ? smsResult.error : undefined,
+    };
   } catch (err) {
     console.error("[allocateMilk] error:", err);
     return {
@@ -300,35 +378,6 @@ export async function releaseMilk(rawInput: unknown) {
 
       const sourceLabels: string[] = [];
       for (const allocation of request.allocations) {
-        const safe = await isSafeSource(allocation.batch_id);
-        if (!safe) {
-          throw new Error("Selected milk is no longer available. Please refresh allocation.");
-        }
-
-        const deduction = await tx.inventory.updateMany({
-          where: {
-            batch_id: allocation.batch_id,
-            available_vol: { gte: allocation.volume },
-          },
-          data: { available_vol: { decrement: allocation.volume } },
-        });
-
-        if (deduction.count !== 1) {
-          throw new Error("Selected milk is no longer available. Please refresh allocation.");
-        }
-
-        const updatedInventory = await tx.inventory.findUnique({
-          where: { batch_id: allocation.batch_id },
-          select: { available_vol: true },
-        });
-
-        if ((updatedInventory?.available_vol ?? 0) <= 0) {
-          await tx.batch.update({
-            where: { batch_id: allocation.batch_id },
-            data: { status: "DISPENSED" },
-          });
-        }
-
         await tx.milkRequestAllocation.update({
           where: { allocation_id: allocation.allocation_id },
           data: {
@@ -406,6 +455,68 @@ export async function releaseMilk(rawInput: unknown) {
   }
 }
 
+export async function resendMilkReadySms(requestId: number) {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return {
+      success: false,
+      errors: { _form: ["Authentication required. Please log in."] },
+    };
+  }
+
+  try {
+    const request = await db.milkRequest.findUnique({
+      where: { request_id: requestId },
+      select: {
+        request_id: true,
+        request_no: true,
+        recipient_id: true,
+        beneficiary_id: true,
+        status: true,
+        recipient: { select: { contact_no: true } },
+      },
+    });
+
+    if (!request) throw new Error("Milk request was not found.");
+    if (request.status !== "READY_FOR_RELEASE") {
+      throw new Error("SMS can only be resent for requests ready for release.");
+    }
+
+    const smsResult = await sendMilkReadySms(request, { allowResend: true });
+
+    await db.auditLog.create({
+      data: {
+        user_id: user.user_id,
+        action_details: `Resent ready-for-release SMS for request ${request.request_no}; status ${smsResult.status}`,
+      },
+    });
+
+    await refreshDistributionPaths();
+
+    return {
+      success: smsResult.status === "SENT",
+      message:
+        smsResult.status === "SENT"
+          ? "SMS notification sent."
+          : smsResult.message,
+      warning: smsResult.status === "FAILED" ? smsResult.error : undefined,
+      errors:
+        smsResult.status === "FAILED"
+          ? { _form: [smsResult.error] }
+          : undefined,
+    };
+  } catch (err) {
+    console.error("[resendMilkReadySms] error:", err);
+    return {
+      success: false,
+      errors: {
+        _form: [err instanceof Error ? err.message : mapPrismaError(err)],
+      },
+    };
+  }
+}
+
 export async function cancelMilkRequest(rawInput: unknown) {
   const parsed = cancelMilkRequestSchema.safeParse(rawInput);
 
@@ -424,21 +535,32 @@ export async function cancelMilkRequest(rawInput: unknown) {
   }
 
   try {
-    const request = await db.milkRequest.update({
-      where: { request_id: input.request_id },
-      data: {
-        status: "CANCELLED",
-        cancellation_reason: input.cancellation_reason,
-        cancelled_at: new Date(),
-        allocated_volume: 0,
-        allocations: {
-          updateMany: {
-            where: { status: "ALLOCATED" },
-            data: { status: "CANCELLED" },
-          },
+    const request = await db.$transaction(async (tx) => {
+      const existing = await tx.milkRequest.findUnique({
+        where: { request_id: input.request_id },
+        select: { request_id: true, request_no: true, status: true },
+      });
+
+      if (!existing) throw new Error("Milk request was not found.");
+      if (existing.status === "RELEASED") {
+        throw new Error("Released requests cannot be cancelled.");
+      }
+      if (existing.status === "CANCELLED") {
+        return existing;
+      }
+
+      await restoreAllocatedMilk(tx, existing.request_id);
+
+      return tx.milkRequest.update({
+        where: { request_id: input.request_id },
+        data: {
+          status: "CANCELLED",
+          cancellation_reason: input.cancellation_reason,
+          cancelled_at: new Date(),
+          allocated_volume: 0,
         },
-      },
-      select: { request_no: true },
+        select: { request_no: true },
+      });
     });
 
     await db.auditLog.create({

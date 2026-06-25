@@ -2,6 +2,7 @@
 
 import { db } from "@/core/db";
 import type { RecipientListItem, RecipientRequestSummary } from "@/features/recipients/queries";
+import { mapSmsStatus } from "./sms-notifications";
 
 export type DistributionRequest = {
   request_id: number;
@@ -24,8 +25,10 @@ export type DistributionRequest = {
   needed_by: string | null;
   created_at: string;
   released_at: string | null;
+  cancelled_at: string | null;
   released_by: string | null;
   remarks: string | null;
+  sms_status: string;
   source_ctns: string[];
   recipient_detail: RecipientListItem;
   request_detail: RecipientRequestSummary;
@@ -40,9 +43,14 @@ export type DispensingLogbookEntry = DistributionRequest & {
 export type AvailableMilkSource = {
   batch_id: number;
   batch_code: string;
+  record_id: string;
+  program: string;
+  donor_name: string | null;
   available_vol: number;
   expiration_date: string | null;
   collection_date: string | null;
+  processing_date: string | null;
+  status: string;
   source_label: string;
 };
 
@@ -92,6 +100,16 @@ function fullName(recipient: {
     .join(" ");
 }
 
+function donorName(donor: {
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+}) {
+  return [donor.first_name, donor.middle_name, donor.last_name]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function recipientDisplayId(id: number) {
   return `REC-${String(id).padStart(4, "0")}`;
 }
@@ -118,6 +136,8 @@ function mapRequest(request: Awaited<ReturnType<typeof fetchRequests>>[number]):
     cancellation_reason: request.cancellation_reason,
     created_at: request.created_at.toISOString(),
     released_at: request.released_at?.toISOString() ?? null,
+    cancelled_at: request.cancelled_at?.toISOString() ?? null,
+    sms_status: mapSmsStatus(request.sms),
   };
 
   return {
@@ -141,8 +161,10 @@ function mapRequest(request: Awaited<ReturnType<typeof fetchRequests>>[number]):
     needed_by: request.needed_by?.toISOString() ?? null,
     created_at: request.created_at.toISOString(),
     released_at: request.released_at?.toISOString() ?? null,
+    cancelled_at: request.cancelled_at?.toISOString() ?? null,
     released_by: request.releaser?.full_name || request.releaser?.email || null,
     remarks: request.remarks,
+    sms_status: requestDetail.sms_status,
     source_ctns: sourceLabels(request),
     request_detail: requestDetail,
     recipient_detail: {
@@ -206,6 +228,13 @@ async function fetchRequests() {
         take: 1,
         select: { dis_id: true, dispensing_date: true, volume: true },
       },
+      sms: {
+        select: {
+          status: true,
+          provider: true,
+          notification_type: true,
+        },
+      },
     },
     orderBy: [{ priority: "asc" }, { created_at: "asc" }],
   });
@@ -225,11 +254,20 @@ export async function getAvailableMilkSources(): Promise<AvailableMilkSource[]> 
       collections: {
         orderBy: { collection_date: "asc" },
         select: {
+          ctn: true,
           tracking_no: true,
+          program: true,
           collection_date: true,
           expiration_date: true,
           is_pasteurized: true,
           status: true,
+          donor: {
+            select: {
+              first_name: true,
+              middle_name: true,
+              last_name: true,
+            },
+          },
         },
       },
     },
@@ -261,9 +299,16 @@ export async function getAvailableMilkSources(): Promise<AvailableMilkSource[]> 
       return {
         batch_id: batch.batch_id,
         batch_code: batch.batch_code,
+        record_id:
+          firstCollection?.tracking_no ??
+          (firstCollection ? `CTN-${String(firstCollection.ctn).padStart(4, "0")}` : batch.batch_code),
+        program: firstCollection?.program ?? "--",
+        donor_name: firstCollection?.donor ? donorName(firstCollection.donor) : null,
         available_vol: batch.inventory?.available_vol ?? 0,
         expiration_date: firstCollection?.expiration_date?.toISOString() ?? null,
         collection_date: firstCollection?.collection_date?.toISOString() ?? null,
+        processing_date: batch.pooling_date.toISOString(),
+        status: batch.status,
         source_label: firstCollection?.tracking_no ?? batch.batch_code,
       };
     })

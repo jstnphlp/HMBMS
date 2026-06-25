@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import type { ElementType } from "react";
+import type { ElementType, ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   ClipboardList,
@@ -40,7 +41,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/core/ui/tabs";
 import { Textarea } from "@/core/ui/textarea";
 import { CreateRequestDialog } from "@/features/recipients/components/recipients-page-content";
-import { allocateMilk, cancelMilkRequest, releaseMilk } from "../actions";
+import { allocateMilk, cancelMilkRequest, releaseMilk, resendMilkReadySms } from "../actions";
 import type {
   AvailableMilkSource,
   DispensingLogbookEntry,
@@ -105,29 +106,78 @@ function AllocationDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [rows, setRows] = useState([{ batch_id: "", volume: "" }]);
+  const [selectedVolumes, setSelectedVolumes] = useState<Record<number, string>>({});
   const [isPending, startTransition] = useTransition();
 
   if (!request) return null;
   const currentRequest = request;
 
-  const allocated = rows.reduce((sum, row) => sum + (Number(row.volume) || 0), 0);
+  const requestedVolume = currentRequest.requested_volume - currentRequest.released_volume;
+  const selectedAllocations = sources
+    .map((source) => ({
+      source,
+      volume: Number(selectedVolumes[source.batch_id]) || 0,
+    }))
+    .filter((item) => item.volume > 0);
+  const allocated = selectedAllocations.reduce((sum, item) => sum + item.volume, 0);
+  const remaining = Math.max(0, requestedVolume - allocated);
+  const hasOverAllocated = allocated > requestedVolume;
+  const hasSourceOverage = selectedAllocations.some(
+    ({ source, volume }) => volume > source.available_vol
+  );
+  const canSave = allocated > 0 && !hasOverAllocated && !hasSourceOverage;
+
+  function setSourceVolume(source: AvailableMilkSource, value: string) {
+    setSelectedVolumes((current) => {
+      const next = { ...current };
+      const volume = Number(value);
+
+      if (value === "" || Number.isNaN(volume) || volume <= 0) {
+        delete next[source.batch_id];
+      } else {
+        next[source.batch_id] = value;
+      }
+
+      return next;
+    });
+  }
+
+  function toggleSource(source: AvailableMilkSource, checked: boolean) {
+    setSelectedVolumes((current) => {
+      const next = { ...current };
+      if (!checked) {
+        delete next[source.batch_id];
+        return next;
+      }
+
+      const defaultVolume = Math.min(source.available_vol, Math.max(1, remaining || requestedVolume));
+      next[source.batch_id] = String(defaultVolume);
+      return next;
+    });
+  }
 
   function handleSubmit() {
+    if (!canSave) {
+      toast.error("Review allocated volumes before saving.");
+      return;
+    }
+
     startTransition(async () => {
       const result = await allocateMilk({
         request_id: currentRequest.request_id,
-        allocations: rows
-          .filter((row) => row.batch_id && Number(row.volume) > 0)
-          .map((row) => ({
-            batch_id: Number(row.batch_id),
-            volume: Number(row.volume),
-          })),
+        allocations: selectedAllocations.map(({ source, volume }) => ({
+          batch_id: source.batch_id,
+          volume,
+        })),
       });
 
       if (result.success) {
-        toast.success("Milk allocated.");
-        setRows([{ batch_id: "", volume: "" }]);
+        if (result.warning) {
+          toast.warning(result.message);
+        } else {
+          toast.success(result.message ?? "Milk allocated successfully.");
+        }
+        setSelectedVolumes({});
         onOpenChange(false);
       } else {
         toast.error(firstError(result));
@@ -135,103 +185,133 @@ function AllocationDialog({
     });
   }
 
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) setSelectedVolumes({});
+    onOpenChange(nextOpen);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="flex max-h-[calc(100vh-4rem)] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-12">
           <DialogTitle>Allocate Milk</DialogTitle>
           <DialogDescription>
-            {currentRequest.request_no} needs {currentRequest.requested_volume.toLocaleString()} mL.
+            Fulfill {currentRequest.request_no} for {currentRequest.beneficiary_name}.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
-          {rows.map((row, index) => {
-            const source = sources.find((item) => item.batch_id.toString() === row.batch_id);
-            return (
-              <div key={index} className="grid gap-3 md:grid-cols-[1fr_140px_40px]">
-                <div>
-                  <Label>Available source</Label>
-                  <Select
-                    value={row.batch_id}
-                    onValueChange={(value) =>
-                      setRows((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, batch_id: value } : item
-                        )
-                      )
-                    }
-                  >
-                    <SelectTrigger className="mt-1 w-full">
-                      <SelectValue placeholder="Select CTN/batch" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sources.map((sourceItem) => (
-                        <SelectItem key={sourceItem.batch_id} value={sourceItem.batch_id.toString()}>
-                          {sourceItem.source_label} - {sourceItem.available_vol.toLocaleString()} mL
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {source && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Expires {formatDate(source.expiration_date)}; available {source.available_vol.toLocaleString()} mL
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <Label>Volume (mL)</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={row.volume}
-                    onChange={(event) =>
-                      setRows((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index
-                            ? { ...item, volume: event.target.value }
-                            : item
-                        )
-                      )
-                    }
-                    className="mt-1"
-                  />
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() =>
-                      setRows((current) =>
-                        current.length === 1
-                          ? [{ batch_id: "", volume: "" }]
-                          : current.filter((_, itemIndex) => itemIndex !== index)
-                      )
-                    }
-                  >
-                    <XCircle className="size-4" />
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          <div className="grid gap-3 text-sm md:grid-cols-4">
+            <div className="rounded-sm border border-border p-3">
+              <div className="text-xs text-muted-foreground">Recipient</div>
+              <div className="font-medium">{currentRequest.recipient_name}</div>
+            </div>
+            <div className="rounded-sm border border-border p-3">
+              <div className="text-xs text-muted-foreground">Requested</div>
+              <div className="font-medium">{requestedVolume.toLocaleString()} mL</div>
+            </div>
+            <div className="rounded-sm border border-border p-3">
+              <div className="text-xs text-muted-foreground">Selected</div>
+              <div className="font-medium">{allocated.toLocaleString()} mL</div>
+            </div>
+            <div className="rounded-sm border border-border p-3">
+              <div className="text-xs text-muted-foreground">Remaining</div>
+              <div className="font-medium">{remaining.toLocaleString()} mL</div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-sm border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted hover:bg-muted">
+                  <TableHead className="w-12"></TableHead>
+                  <TableHead>Record / CTN</TableHead>
+                  <TableHead>Batch</TableHead>
+                  <TableHead>Program</TableHead>
+                  <TableHead>Donor</TableHead>
+                  <TableHead>Available</TableHead>
+                  <TableHead>Collection / Processing</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="w-36">Allocate</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sources.map((source) => {
+                  const selected = selectedVolumes[source.batch_id] !== undefined;
+                  const volume = selectedVolumes[source.batch_id] ?? "";
+                  const volumeNumber = Number(volume) || 0;
+                  const invalid = volumeNumber > source.available_vol;
+
+                  return (
+                    <TableRow
+                      key={source.batch_id}
+                      className={selected ? "bg-muted/40" : undefined}
+                    >
+                      <TableCell>
+                        <Checkbox
+                          checked={selected}
+                          onCheckedChange={(checked) =>
+                            toggleSource(source, checked === true)
+                          }
+                          aria-label={`Select ${source.source_label}`}
+                        />
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{source.record_id}</TableCell>
+                      <TableCell>{source.batch_code}</TableCell>
+                      <TableCell>{source.program.replaceAll("_", " ")}</TableCell>
+                      <TableCell>{source.donor_name ?? "--"}</TableCell>
+                      <TableCell>{source.available_vol.toLocaleString()} mL</TableCell>
+                      <TableCell>
+                        <div>{formatDate(source.collection_date)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatDate(source.processing_date)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={statusClass(source.status)}>
+                          {source.status.replaceAll("_", " ")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min="1"
+                          max={source.available_vol}
+                          step="1"
+                          value={volume}
+                          disabled={!selected}
+                          onChange={(event) => setSourceVolume(source, event.target.value)}
+                          className={invalid ? "border-destructive" : undefined}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {sources.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                      No eligible milk sources are currently available.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {(hasOverAllocated || hasSourceOverage) && (
+            <div className="rounded-sm border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+              {hasOverAllocated
+                ? "Total allocation exceeds this request."
+                : "One or more source allocations exceed available volume."}
+            </div>
+          )}
         </div>
 
-        <div className="rounded-sm border border-border bg-muted/40 p-3 text-sm">
-          Allocating {allocated.toLocaleString()} mL of {currentRequest.requested_volume.toLocaleString()} mL requested.
-        </div>
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setRows((current) => [...current, { batch_id: "", volume: "" }])}
-          >
-            Add Source
+        <DialogFooter className="shrink-0 border-t border-border bg-background px-6 py-4">
+          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+            Cancel
           </Button>
-          <Button disabled={isPending || allocated <= 0} onClick={handleSubmit}>
+          <Button disabled={isPending || !canSave} onClick={handleSubmit}>
             {isPending ? "Allocating..." : "Save Allocation"}
           </Button>
         </DialogFooter>
@@ -548,11 +628,117 @@ function CancelDialog({
   );
 }
 
+function ReadOnlyField({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div className="rounded-sm border border-border bg-muted/20 p-3 text-sm">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 font-medium">{value || "--"}</div>
+    </div>
+  );
+}
+
+function ReadOnlyRequestDialog({
+  request,
+  open,
+  onOpenChange,
+}: {
+  request: DistributionRequest | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  if (!request) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[calc(100vh-4rem)] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-12">
+          <DialogTitle>Milk Request Details</DialogTitle>
+          <DialogDescription>
+            {request.request_no} - {request.status.replaceAll("_", " ")}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          <section className="grid gap-3 md:grid-cols-3">
+            <ReadOnlyField label="Recipient" value={request.recipient_name} />
+            <ReadOnlyField label="Beneficiary" value={request.beneficiary_name} />
+            <ReadOnlyField
+              label="Status"
+              value={
+                <Badge className={statusClass(request.status)}>
+                  {request.status.replaceAll("_", " ")}
+                </Badge>
+              }
+            />
+            <ReadOnlyField
+              label="Requested Volume"
+              value={`${request.requested_volume.toLocaleString()} mL`}
+            />
+            <ReadOnlyField
+              label="Allocated Volume"
+              value={`${request.allocated_volume.toLocaleString()} mL`}
+            />
+            <ReadOnlyField
+              label="Released Volume"
+              value={`${request.released_volume.toLocaleString()} mL`}
+            />
+            <ReadOnlyField label="Priority" value={request.priority} />
+            <ReadOnlyField
+              label="Payment"
+              value={
+                <Badge className={statusClass(request.payment_status)}>
+                  {request.payment_status.replaceAll("_", " ")}
+                </Badge>
+              }
+            />
+            <ReadOnlyField label="SMS" value={request.sms_status} />
+          </section>
+
+          <section className="grid gap-3 md:grid-cols-2">
+            <ReadOnlyField label="Needed By" value={formatDate(request.needed_by)} />
+            <ReadOnlyField label="Created" value={formatDate(request.created_at)} />
+            <ReadOnlyField label="Released" value={formatDate(request.released_at)} />
+            <ReadOnlyField label="Cancelled" value={formatDate(request.cancelled_at)} />
+            <ReadOnlyField label="Released By" value={request.released_by ?? "--"} />
+          </section>
+
+          <section className="space-y-3">
+            <ReadOnlyField
+              label="Source CTN(s)"
+              value={request.source_ctns.join(", ") || "--"}
+            />
+            <ReadOnlyField label="Reason" value={request.request_detail.reason} />
+            <ReadOnlyField label="Remarks" value={request.remarks ?? "--"} />
+            {request.request_detail.cancellation_reason && (
+              <ReadOnlyField
+                label="Cancellation Reason"
+                value={request.request_detail.cancellation_reason}
+              />
+            )}
+          </section>
+        </div>
+        <DialogFooter className="shrink-0 border-t border-border bg-background px-6 py-4">
+          <Button type="button" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function RequestTable({
   rows,
   mode,
   onAllocate,
   onRelease,
+  onResendSms,
+  resendingRequestId,
   onCancel,
   onOpenRequest,
 }: {
@@ -560,9 +746,13 @@ function RequestTable({
   mode: "queue" | "ready" | "cancelled";
   onAllocate?: (request: DistributionRequest) => void;
   onRelease?: (request: DistributionRequest) => void;
+  onResendSms?: (request: DistributionRequest) => void;
+  resendingRequestId?: number | null;
   onCancel?: (request: DistributionRequest) => void;
   onOpenRequest: (request: DistributionRequest) => void;
 }) {
+  const emptyColSpan = mode === "ready" ? 9 : 8;
+
   return (
     <div className="overflow-x-auto rounded-sm border border-border bg-popover">
       <Table>
@@ -574,6 +764,7 @@ function RequestTable({
             <TableHead>{mode === "ready" ? "Allocated Volume" : "Requested Volume"}</TableHead>
             {mode !== "cancelled" && <TableHead>Priority</TableHead>}
             {mode === "ready" && <TableHead>Payment Status</TableHead>}
+            {mode === "ready" && <TableHead>SMS</TableHead>}
             {mode === "cancelled" && <TableHead>Cancelled Date</TableHead>}
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -600,7 +791,8 @@ function RequestTable({
                   </Badge>
                 </TableCell>
               )}
-              {mode === "cancelled" && <TableCell>{formatDate(request.released_at)}</TableCell>}
+              {mode === "ready" && <TableCell>{request.sms_status}</TableCell>}
+              {mode === "cancelled" && <TableCell>{formatDate(request.cancelled_at)}</TableCell>}
               <TableCell>
                 <Badge className={statusClass(request.status)}>
                   {request.status.replaceAll("_", " ")}
@@ -621,15 +813,28 @@ function RequestTable({
                     </Button>
                   )}
                   {mode === "ready" && (
-                    <Button
-                      size="sm"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onRelease?.(request);
-                      }}
-                    >
-                      Release Milk
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={resendingRequestId === request.request_id}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onResendSms?.(request);
+                        }}
+                      >
+                        {resendingRequestId === request.request_id ? "Sending..." : "Resend SMS"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRelease?.(request);
+                        }}
+                      >
+                        Release Milk
+                      </Button>
+                    </>
                   )}
                   {mode !== "cancelled" && (
                     <Button
@@ -649,7 +854,7 @@ function RequestTable({
           ))}
           {rows.length === 0 && (
             <TableRow>
-              <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+              <TableCell colSpan={emptyColSpan} className="py-12 text-center text-muted-foreground">
                 No records found.
               </TableCell>
             </TableRow>
@@ -719,6 +924,7 @@ function ReleasedTable({
 }
 
 export function DistributionPageContent({ data }: DistributionPageContentProps) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -727,6 +933,9 @@ export function DistributionPageContent({ data }: DistributionPageContentProps) 
   const [releaseTarget, setReleaseTarget] = useState<DistributionRequest | null>(null);
   const [cancelTarget, setCancelTarget] = useState<DistributionRequest | null>(null);
   const [detailsTarget, setDetailsTarget] = useState<DistributionRequest | null>(null);
+  const [readOnlyDetailsTarget, setReadOnlyDetailsTarget] = useState<DistributionRequest | null>(null);
+  const [resendingRequestId, setResendingRequestId] = useState<number | null>(null);
+  const [isResendPending, startResendTransition] = useTransition();
   const metricCards: { label: string; value: number; Icon: ElementType }[] = [
     { label: "Queued", value: data.queue.length, Icon: ClipboardList },
     { label: "Ready", value: data.ready.length, Icon: Truck },
@@ -750,6 +959,20 @@ export function DistributionPageContent({ data }: DistributionPageContentProps) 
     (row) => row as DispensingLogbookEntry
   );
   const cancelled = filterRows(data.cancelled);
+
+  function handleResendSms(request: DistributionRequest) {
+    setResendingRequestId(request.request_id);
+    startResendTransition(async () => {
+      const result = await resendMilkReadySms(request.request_id);
+      if (result.success) {
+        toast.success("SMS notification sent.");
+        router.refresh();
+      } else {
+        toast.error(firstError(result));
+      }
+      setResendingRequestId(null);
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -843,18 +1066,20 @@ export function DistributionPageContent({ data }: DistributionPageContentProps) 
             rows={ready}
             mode="ready"
             onRelease={setReleaseTarget}
+            onResendSms={handleResendSms}
+            resendingRequestId={isResendPending ? resendingRequestId : null}
             onCancel={setCancelTarget}
-            onOpenRequest={setDetailsTarget}
+            onOpenRequest={setReadOnlyDetailsTarget}
           />
         </TabsContent>
         <TabsContent value="released">
-          <ReleasedTable rows={released} onOpenRequest={setDetailsTarget} />
+          <ReleasedTable rows={released} onOpenRequest={setReadOnlyDetailsTarget} />
         </TabsContent>
         <TabsContent value="cancelled">
           <RequestTable
             rows={cancelled}
             mode="cancelled"
-            onOpenRequest={setDetailsTarget}
+            onOpenRequest={setReadOnlyDetailsTarget}
           />
         </TabsContent>
       </Tabs>
@@ -887,6 +1112,13 @@ export function DistributionPageContent({ data }: DistributionPageContentProps) 
         open={!!detailsTarget}
         onOpenChange={(open) => {
           if (!open) setDetailsTarget(null);
+        }}
+      />
+      <ReadOnlyRequestDialog
+        request={readOnlyDetailsTarget}
+        open={!!readOnlyDetailsTarget}
+        onOpenChange={(open) => {
+          if (!open) setReadOnlyDetailsTarget(null);
         }}
       />
     </div>
