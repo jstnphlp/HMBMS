@@ -127,3 +127,20 @@ export const bulkSetLabResultForBatchSchema = z.object({
 export type BulkSetLabResultForBatchInput = z.infer<
   typeof bulkSetLabResultForBatchSchema
 >;
+
+export const releaseCollectionFromBatchSchema = z.object({
+  batchId: z.coerce.number().int().positive("Batch ID is required"),
+  collectionId: z.coerce.number().int().positive("Collection ID is required"),
+});
+
+export type ReleaseCollectionFromBatchInput = z.infer<
+  typeof releaseCollectionFromBatchSchema
+>;
+
+export const releaseEligibleCollectionsFromBatchSchema = z.object({
+  batchId: z.coerce.number().int().positive("Batch ID is required"),
+});
+
+export type ReleaseEligibleCollectionsFromBatchInput = z.infer<
+  typeof releaseEligibleCollectionsFromBatchSchema
+>;

@@ -14,7 +14,22 @@ export interface LabBatchSummary {
   collection_batch_no?: string;
   collection_batch_type?: "PRE_PSTR" | "PSTR" | "POST_PSTR";
   collection_batch_status?: string;
+  collection_batch_lifecycle?: "ACTIVE" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
   collection_batch_items?: LabBatchSummary[];
+  collection_id?: number;
+  collection_batch_item_status?: string;
+  release_result?: string | null;
+  release_destination?: string | null;
+  released_at?: Date | null;
+  released_by_name?: string | null;
+  batch_summary?: {
+    total: number;
+    released: number;
+    remaining: number;
+    passed: number;
+    failed: number;
+    pending: number;
+  };
   creator_name?: string;
   notes?: string | null;
   pooling_date: Date;
@@ -48,7 +63,22 @@ export interface LabBatchDetail {
   collection_batch_no?: string;
   collection_batch_type?: "PRE_PSTR" | "PSTR" | "POST_PSTR";
   collection_batch_status?: string;
+  collection_batch_lifecycle?: "ACTIVE" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
   collection_batch_items?: LabBatchSummary[];
+  collection_id?: number;
+  collection_batch_item_status?: string;
+  release_result?: string | null;
+  release_destination?: string | null;
+  released_at?: Date | null;
+  released_by_name?: string | null;
+  batch_summary?: {
+    total: number;
+    released: number;
+    remaining: number;
+    passed: number;
+    failed: number;
+    pending: number;
+  };
   notes?: string | null;
   pooling_date: Date;
   total_volume: number;
@@ -92,19 +122,62 @@ async function withWorkflowSampleNo(
   return { ...workflow, sample_no: sampleNo };
 }
 
-function summarizeCollectionBatchStatus(items: LabBatchSummary[], batchType: "PRE_PSTR" | "PSTR" | "POST_PSTR") {
+function collectionBatchOutcome(
+  item: LabBatchSummary,
+  batchType: "PRE_PSTR" | "PSTR" | "POST_PSTR"
+) {
+  if (item.release_result === "PASS") return "passed";
+  if (item.release_result === "FAIL") return "failed";
+  const workflow = item.supSupTodoWorkflow;
+  if (batchType === "PRE_PSTR") {
+    if (workflow?.pre_lab_result === "PASS") return "passed";
+    if (workflow?.pre_lab_result === "FAIL") return "failed";
+    return "pending";
+  }
+
+  if (batchType === "PSTR") {
+    return workflow?.pasteurization_confirmed ? "passed" : "pending";
+  }
+
+  if (workflow?.post_lab_result === "PASS") return "passed";
+  if (workflow?.post_lab_result === "FAIL") return "failed";
+  return "pending";
+}
+
+function summarizeCollectionBatchCounts(
+  items: LabBatchSummary[],
+  batchType: "PRE_PSTR" | "PSTR" | "POST_PSTR",
+  released = items.filter((item) => item.collection_batch_item_status === "RELEASED").length
+) {
+  const passed = items.filter((item) => collectionBatchOutcome(item, batchType) === "passed").length;
+  const failed = items.filter((item) => collectionBatchOutcome(item, batchType) === "failed").length;
+  const remaining = items.filter((item) => item.collection_batch_item_status !== "RELEASED").length;
+  const pending = items.filter(
+    (item) =>
+      item.collection_batch_item_status !== "RELEASED" &&
+      collectionBatchOutcome(item, batchType) === "pending"
+  ).length;
+  return { total: items.length, released, remaining, passed, failed, pending };
+}
+
+function summarizeCollectionBatchStatus(
+  items: LabBatchSummary[],
+  batchType: "PRE_PSTR" | "PSTR" | "POST_PSTR",
+  lifecycle?: "ACTIVE" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED"
+) {
   if (items.length === 0) return "In Progress";
 
-  const failed = items.filter((item) => {
-    const workflow = item.supSupTodoWorkflow;
-    return batchType === "PRE_PSTR"
-      ? workflow?.pre_lab_result === "FAIL"
-      : batchType === "POST_PSTR"
-        ? workflow?.post_lab_result === "FAIL"
-        : false;
-  }).length;
-  if (failed === items.length) return "Failed";
-  if (failed > 0) return "Partially Failed";
+  const counts = summarizeCollectionBatchCounts(items, batchType);
+  if (lifecycle === "CANCELLED") return "Cancelled";
+  if (lifecycle === "COMPLETED") {
+    if (counts.failed > 0 && counts.passed > 0) return "Completed / Mixed Results";
+    if (counts.failed > 0 && counts.passed === 0) return "Completed / Failed";
+    return "Completed";
+  }
+  if (counts.released > 0 && counts.remaining > 0) return "Partially Released";
+  if (counts.failed === items.length) return "Failed";
+  if (counts.passed + counts.failed === items.length) return counts.failed > 0 ? "Mixed Results" : "Completed";
+  if (counts.failed > 0 || counts.passed > 0) return "Partially Completed";
 
   const completed = items.every((item) => {
     const workflow = item.supSupTodoWorkflow;
@@ -228,7 +301,7 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
             remarks: postPast.remarks,
           }
         : null,
-      supSupTodoWorkflow: await withWorkflowSampleNo(batch.supSupTodoWorkflow),
+        supSupTodoWorkflow: await withWorkflowSampleNo(batch.supSupTodoWorkflow),
     };
   }));
 
@@ -237,12 +310,13 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
     return !!batch.supSupTodoWorkflow.cold_chain_started_at;
   });
 
-  const activeCollectionBatches = await db.collectionBatch.findMany({
-    where: { status: { in: ["ACTIVE", "IN_PROGRESS"] } },
+  const collectionBatches = await db.collectionBatch.findMany({
+    where: { status: { in: ["ACTIVE", "IN_PROGRESS", "COMPLETED", "CANCELLED"] } },
     include: {
       creator: { select: { email: true, full_name: true } },
       items: {
         include: {
+          releaser: { select: { email: true, full_name: true } },
           collection: {
             include: {
               donor: { select: { first_name: true, last_name: true } },
@@ -291,8 +365,13 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
   });
 
   const activeBatchedProcessingIds = new Set(
-    activeCollectionBatches.flatMap((batch) =>
+    collectionBatches.flatMap((batch) =>
       batch.items
+        .filter(
+          (item) =>
+            item.item_status !== "RELEASED" &&
+            (batch.status === "ACTIVE" || batch.status === "IN_PROGRESS")
+        )
         .map((item) => item.collection.batch_id)
         .filter((batchId): batchId is number => batchId != null)
     )
@@ -303,7 +382,7 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
   );
 
   const collectionBatchRows: LabBatchSummary[] = [];
-  for (const collectionBatch of activeCollectionBatches) {
+  for (const collectionBatch of collectionBatches) {
     const items: LabBatchSummary[] = [];
     for (const item of collectionBatch.items) {
       const processingBatch = item.collection.batch;
@@ -321,6 +400,12 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
         row_type: "individual",
         row_id: `individual-${processingBatch.batch_id}`,
         batch_id: processingBatch.batch_id,
+        collection_id: item.collection.ctn,
+        collection_batch_item_status: item.item_status,
+        release_result: item.release_result,
+        release_destination: item.release_destination,
+        released_at: item.released_at,
+        released_by_name: item.releaser?.full_name || item.releaser?.email || null,
         batch_code: processingBatch.batch_code,
         display_id: item.collection.tracking_no ?? processingBatch.batch_code,
         tracking_no: item.collection.tracking_no,
@@ -351,6 +436,10 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
 
     const totalVolume = items.reduce((sum, item) => sum + item.remaining_volume, 0);
     const donorNames = Array.from(new Set(items.map((item) => item.donor_name)));
+    const batchSummary = summarizeCollectionBatchCounts(
+      items,
+      collectionBatch.batch_type
+    );
     collectionBatchRows.push({
       row_type: "collection_batch",
       row_id: `collection-batch-${collectionBatch.id}`,
@@ -361,11 +450,14 @@ export async function getBatchesForLab(): Promise<LabBatchSummary[]> {
       collection_batch_id: collectionBatch.id,
       collection_batch_no: collectionBatch.batch_no,
       collection_batch_type: collectionBatch.batch_type,
+      collection_batch_lifecycle: collectionBatch.status,
       collection_batch_status: summarizeCollectionBatchStatus(
         items,
-        collectionBatch.batch_type
+        collectionBatch.batch_type,
+        collectionBatch.status
       ),
       collection_batch_items: items,
+      batch_summary: batchSummary,
       creator_name: collectionBatch.creator.full_name || collectionBatch.creator.email,
       notes: collectionBatch.notes,
       pooling_date: collectionBatch.created_at,
@@ -412,8 +504,10 @@ export async function getBatchLabDetail(
       collection_batch_id: summary.collection_batch_id,
       collection_batch_no: summary.collection_batch_no,
       collection_batch_type: summary.collection_batch_type,
+      collection_batch_lifecycle: summary.collection_batch_lifecycle,
       collection_batch_status: summary.collection_batch_status,
       collection_batch_items: summary.collection_batch_items,
+      batch_summary: summary.batch_summary,
       notes: summary.notes,
       pooling_date: summary.pooling_date,
       total_volume: summary.total_volume,

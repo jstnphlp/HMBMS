@@ -7,6 +7,7 @@ import { formatCollectionTrackingNo } from "@/core/utils/tracking";
 import { mapPrismaError } from "@/core/utils/prisma-error";
 import { getCurrentUser } from "@/features/auth/actions";
 import { revalidatePath } from "next/cache";
+import type { Prisma } from "@/generated/prisma/client";
 import {
   bottlingSchema,
   coldChainSchema,
@@ -23,6 +24,15 @@ import {
 type ActionResult<T = unknown> =
   | { success: true; data: T }
   | { success: false; errors: Record<string, string[]> };
+type Tx = Prisma.TransactionClient;
+
+const SESSION_VOLUME_ERROR =
+  "Donation volume must be between 30 mL and 240 mL per session.";
+const DAILY_VOLUME_ERROR =
+  "This donor has reached the 800 mL daily donation limit.";
+const MIN_DONATION_VOLUME_ML = 30;
+const MAX_DONATION_VOLUME_ML = 240;
+const MAX_DAILY_DONATION_VOLUME_ML = 800;
 
 async function requireUser() {
   const user = await getCurrentUser();
@@ -99,6 +109,42 @@ async function validateDonorCanStartDonationWorkflow(donorId: number) {
   }
 
   return null;
+}
+
+async function assertDonationVolumeLimits({
+  tx,
+  donorId,
+  collectionDate,
+  volume,
+  excludeCtn,
+}: {
+  tx: Tx;
+  donorId: number;
+  collectionDate: Date;
+  volume: number;
+  excludeCtn?: number | null;
+}) {
+  if (volume < MIN_DONATION_VOLUME_ML || volume > MAX_DONATION_VOLUME_ML) {
+    throw new Error(SESSION_VOLUME_ERROR);
+  }
+
+  const startOfDay = new Date(collectionDate);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(startOfDay);
+  endOfDay.setDate(endOfDay.getDate() + 1);
+
+  const aggregate = await tx.collection.aggregate({
+    where: {
+      donor_id: donorId,
+      collection_date: { gte: startOfDay, lt: endOfDay },
+      ...(excludeCtn ? { ctn: { not: excludeCtn } } : {}),
+    },
+    _sum: { volume: true },
+  });
+
+  if ((aggregate._sum.volume ?? 0) + volume > MAX_DAILY_DONATION_VOLUME_ML) {
+    throw new Error(DAILY_VOLUME_ERROR);
+  }
 }
 
 function revalidateDonorSurfaces() {
@@ -262,6 +308,14 @@ export async function updateLactationExtraction(
     const result = await db.$transaction(async (tx) => {
       let batchId = workflow.batch_id;
       let ctn = workflow.ctn;
+
+      await assertDonationVolumeLimits({
+        tx,
+        donorId: workflow.donor_id,
+        collectionDate: parsed.data.extraction_completed_at,
+        volume: parsed.data.extracted_volume,
+        excludeCtn: ctn,
+      });
 
       if (!batchId) {
         const batch = await tx.batch.create({

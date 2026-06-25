@@ -147,6 +147,10 @@ function collectionSearchText(batch: LabBatchSummary) {
           item.program,
           formatProgram(item.program),
           collectionStatusLabel(item),
+          item.collection_batch_item_status,
+          item.release_result,
+          item.release_destination,
+          item.released_by_name,
         ].join(" ")
       )
       .join(" ") ?? "";
@@ -157,6 +161,7 @@ function collectionSearchText(batch: LabBatchSummary) {
     batch.collection_batch_no ?? "",
     batch.collection_batch_type ?? "",
     batch.collection_batch_status ?? "",
+    batch.collection_batch_lifecycle ?? "",
     childText,
     workflow ? `sample ${workflow.sample_no}` : "",
     workflow ? `sample #${workflow.sample_no}` : "",
@@ -198,10 +203,24 @@ export function BatchTable({
 }: BatchTableProps) {
   const [search, setSearch] = useState("");
   const [programFilter, setProgramFilter] = useState<string>("all");
+  const [rowTypeFilter, setRowTypeFilter] = useState<"all" | "batches">("all");
+  const [batchStatusFilter, setBatchStatusFilter] = useState<
+    "active" | "completed" | "cancelled" | "all"
+  >("active");
   const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     return batches.filter((batch) => {
+      const lifecycle = batch.collection_batch_lifecycle;
+      const matchesBatchStatus =
+        !lifecycle ||
+        batchStatusFilter === "all" ||
+        (batchStatusFilter === "active" &&
+          (lifecycle === "ACTIVE" || lifecycle === "IN_PROGRESS")) ||
+        (batchStatusFilter === "completed" && lifecycle === "COMPLETED") ||
+        (batchStatusFilter === "cancelled" && lifecycle === "CANCELLED");
+      const matchesRowType =
+        rowTypeFilter === "all" || batch.row_type === "collection_batch";
       const matchesBatchType =
         !isBatchMode || getBatchEligibility(batch, batchType);
       const searchableText = collectionSearchText(batch);
@@ -210,11 +229,27 @@ export function BatchTable({
         normalizedSearch === "" || searchableText.includes(normalizedSearch);
 
       const matchesProgram =
-        programFilter === "all" || batch.program === programFilter;
+        programFilter === "all" ||
+        batch.program === programFilter ||
+        batch.collection_batch_items?.some((item) => item.program === programFilter);
 
-      return matchesBatchType && matchesSearch && matchesProgram;
+      return (
+        matchesBatchStatus &&
+        matchesRowType &&
+        matchesBatchType &&
+        matchesSearch &&
+        matchesProgram
+      );
     });
-  }, [batches, search, programFilter, isBatchMode, batchType]);
+  }, [
+    batches,
+    search,
+    programFilter,
+    rowTypeFilter,
+    batchStatusFilter,
+    isBatchMode,
+    batchType,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -277,7 +312,7 @@ export function BatchTable({
           <h3 className="text-xs font-semibold text-foreground uppercase tracking-wider">
             Active Collections
           </h3>
-          <Badge className="bg-muted-foreground/10 text-muted-foreground px-2 py-0.5 text-[10px]">
+          <Badge className="bg-muted-foreground/10 text-muted-foreground px-2 py-0.5 text-[10px] mr-3">
             {filtered.length}
           </Badge>
           {selectedIds.size > 0 && (
@@ -327,6 +362,38 @@ export function BatchTable({
               <SelectItem value="SUPSUP_TODO">Supsup Todo</SelectItem>
               <SelectItem value="MILKY_WAY">Milky Way</SelectItem>
               <SelectItem value="MOMS_ACT">{"Mom's Act"}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={rowTypeFilter}
+            onValueChange={(v) => {
+              setRowTypeFilter(v as "all" | "batches");
+              setPage(1);
+            }}
+          >
+            <SelectTrigger className="h-8 text-xs w-[125px] bg-background border-border">
+              <SelectValue placeholder="All Rows" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="batches">Batches only</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={batchStatusFilter}
+            onValueChange={(v) => {
+              setBatchStatusFilter(v as "active" | "completed" | "cancelled" | "all");
+              setPage(1);
+            }}
+          >
+            <SelectTrigger className="h-8 text-xs w-[135px] bg-background border-border">
+              <SelectValue placeholder="Active" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+              <SelectItem value="all">All statuses</SelectItem>
             </SelectContent>
           </Select>
           <Button
@@ -452,7 +519,9 @@ export function BatchTable({
                     <ProcessStatusBadge
                       label={
                         isSavedBatch
-                          ? batch.collection_batch_status ?? "In Progress"
+                          ? batch.batch_summary
+                            ? `${batch.batch_summary.passed} Passed, ${batch.batch_summary.failed} Failed, ${batch.batch_summary.pending} Pending`
+                            : batch.collection_batch_status ?? "In Progress"
                           : collectionStatusLabel(batch)
                       }
                     />

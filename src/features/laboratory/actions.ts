@@ -9,11 +9,15 @@ import {
   saveLabBatchSelectionSchema,
   bulkSetLabResultForBatchSchema,
   bulkSetSentToLabForBatchSchema,
+  releaseCollectionFromBatchSchema,
+  releaseEligibleCollectionsFromBatchSchema,
 } from "./schemas";
 import type {
   BulkSetLabResultForBatchInput,
   BulkSetSentToLabForBatchInput,
   RecordLabResultInput,
+  ReleaseCollectionFromBatchInput,
+  ReleaseEligibleCollectionsFromBatchInput,
   UpdateBatchLabResultsInput,
   BulkUpdateBatchStatusInput,
   SaveLabBatchSelectionInput,
@@ -34,6 +38,8 @@ const BLOCKED_WORKFLOW_STATUSES = new Set([
   "POST_LAB_FAILED",
   "DISPOSED",
 ]);
+const NO_ELIGIBLE_RELEASE_MESSAGE =
+  "No eligible collections are ready to release from this batch.";
 
 function revalidateLabSurfaces() {
   revalidatePath("/dashboard/laboratory");
@@ -666,6 +672,7 @@ export async function saveLabBatchSelection(rawInput: unknown) {
   const conflict = await db.collectionBatchItem.findFirst({
     where: {
       collection_id: { in: collectionIds },
+      item_status: "ACTIVE",
       batch: {
         batch_type: batchType,
         status: { in: [...ACTIVE_COLLECTION_BATCH_STATUSES] },
@@ -697,6 +704,7 @@ export async function saveLabBatchSelection(rawInput: unknown) {
         const retryConflict = await tx.collectionBatchItem.findFirst({
           where: {
             collection_id: { in: collectionIds },
+            item_status: "ACTIVE",
             batch: {
               batch_type: batchType,
               status: { in: [...ACTIVE_COLLECTION_BATCH_STATUSES] },
@@ -799,6 +807,436 @@ function ctnLabel(item: { ctn: string; collection: { tracking_no: string | null 
   return item.collection.tracking_no ?? item.ctn;
 }
 
+type BatchItemForRelease = Prisma.CollectionBatchItemGetPayload<{
+  include: {
+    collection: true;
+    workflow: { include: { collection: true; batch: true } };
+  };
+}>;
+
+function isEligibleForBatchRelease(
+  item: BatchItemForRelease,
+  batchType: LabBatchType
+) {
+  const workflow = item.workflow;
+  if (item.item_status === "RELEASED") return false;
+  if (!workflow || !workflow.batch_id) return false;
+
+  if (batchType === "PRE_PSTR") {
+    return workflow.pre_lab_result === "PASS" || workflow.pre_lab_result === "FAIL";
+  }
+
+  if (batchType === "PSTR") {
+    return workflow.pre_lab_result === "PASS" && workflow.pasteurization_confirmed;
+  }
+
+  return workflow.post_lab_result === "PASS" || workflow.post_lab_result === "FAIL";
+}
+
+async function createOrUpdateDisposal({
+  tx,
+  batchId,
+  reason,
+  volume,
+  userId,
+}: {
+  tx: Tx;
+  batchId: number;
+  reason: string;
+  volume: number;
+  userId: number;
+}) {
+  const existing = await tx.disposal.findFirst({
+    where: { batch_id: batchId, reason },
+  });
+  const data = {
+    disposal_date: new Date(),
+    volume,
+    disposed_by: userId,
+    remarks: "Released from batch as failed.",
+  };
+
+  if (existing) {
+    await tx.disposal.update({
+      where: { disposal_id: existing.disposal_id },
+      data,
+    });
+    return;
+  }
+
+  await tx.disposal.create({
+    data: {
+      batch_id: batchId,
+      reason,
+      ...data,
+    },
+  });
+}
+
+async function applyReleaseTransition({
+  tx,
+  item,
+  batchType,
+  userId,
+}: {
+  tx: Tx;
+  item: BatchItemForRelease;
+  batchType: LabBatchType;
+  userId: number;
+}): Promise<{ result: "PASS" | "FAIL" | "COMPLETED"; destination: string }> {
+  const workflow = item.workflow;
+  if (!workflow || !workflow.batch_id || !workflow.batch) {
+    throw new Error(`${ctnLabel(item)} has no linked workflow tracker.`);
+  }
+
+  const batchId = workflow.batch_id;
+  const remainingVolume =
+    workflow.batch.remaining_volume ??
+    workflow.extracted_volume ??
+    workflow.collection?.volume ??
+    item.collection.volume;
+  const originalVolume =
+    workflow.extracted_volume ?? workflow.collection?.volume ?? item.collection.volume;
+
+  if (batchType === "PRE_PSTR") {
+    if (workflow.pre_lab_result === "PASS") {
+      await tx.batch.update({
+        where: { batch_id: batchId },
+        data: { status: "TESTING" },
+      });
+      await tx.supsupTodoDonationWorkflow.update({
+        where: { workflow_id: workflow.workflow_id },
+        data: {
+          final_status: "READY_FOR_PASTEURIZATION",
+          current_step: "PASTEURIZATION",
+          updated_by: userId,
+        },
+      });
+      return { result: "PASS", destination: "Ready for Pasteurization" };
+    }
+
+    if (workflow.pre_lab_result === "FAIL") {
+      await tx.batch.update({
+        where: { batch_id: batchId },
+        data: { status: "DISPOSED" },
+      });
+      await createOrUpdateDisposal({
+        tx,
+        batchId,
+        reason: "PRE_LAB_FAILED",
+        volume: remainingVolume,
+        userId,
+      });
+      await tx.supsupTodoDonationWorkflow.update({
+        where: { workflow_id: workflow.workflow_id },
+        data: {
+          final_status: "PRE_LAB_FAILED",
+          current_step: "DISPOSED",
+          updated_by: userId,
+        },
+      });
+      return { result: "FAIL", destination: "To Dispose" };
+    }
+  }
+
+  if (batchType === "PSTR") {
+    if (!workflow.pasteurization_confirmed) {
+      throw new Error(`${ctnLabel(item)} is not ready to release from PSTR batch.`);
+    }
+    await tx.batch.update({
+      where: { batch_id: batchId },
+      data: { status: "PASTEURIZED" },
+    });
+    await tx.supsupTodoDonationWorkflow.update({
+      where: { workflow_id: workflow.workflow_id },
+      data: {
+        final_status: "READY_FOR_STORAGE",
+        current_step: "POST_SENT_TO_LAB",
+        updated_by: userId,
+      },
+    });
+    return { result: "COMPLETED", destination: "Ready for POST-PSTR Lab Test" };
+  }
+
+  if (workflow.post_lab_result === "PASS") {
+    await tx.batch.update({
+      where: { batch_id: batchId },
+      data: { status: "AVAILABLE" },
+    });
+    await tx.collection.update({
+      where: { ctn: item.collection_id },
+      data: { status: "READY_FOR_DISPENSING", is_pasteurized: true },
+    });
+    await tx.inventory.upsert({
+      where: { batch_id: batchId },
+      update: {
+        donated_vol: originalVolume,
+        pasteurized_vol: remainingVolume,
+        available_vol: remainingVolume,
+        updated_by: userId,
+      },
+      create: {
+        batch_id: batchId,
+        donated_vol: originalVolume,
+        pasteurized_vol: remainingVolume,
+        available_vol: remainingVolume,
+        updated_by: userId,
+      },
+    });
+    await tx.supsupTodoDonationWorkflow.update({
+      where: { workflow_id: workflow.workflow_id },
+      data: {
+        final_status: "READY_FOR_DISPENSING",
+        current_step: "COMPLETED",
+        updated_by: userId,
+      },
+    });
+    return { result: "PASS", destination: "Available" };
+  }
+
+  if (workflow.post_lab_result === "FAIL") {
+    await tx.batch.update({
+      where: { batch_id: batchId },
+      data: { status: "DISPOSED" },
+    });
+    await createOrUpdateDisposal({
+      tx,
+      batchId,
+      reason: "POST_LAB_FAILED",
+      volume: remainingVolume,
+      userId,
+    });
+    await tx.supsupTodoDonationWorkflow.update({
+      where: { workflow_id: workflow.workflow_id },
+      data: {
+        final_status: "POST_LAB_FAILED",
+        current_step: "DISPOSED",
+        updated_by: userId,
+      },
+    });
+    return { result: "FAIL", destination: "To Dispose" };
+  }
+
+  throw new Error(`${ctnLabel(item)} is not eligible for release from batch.`);
+}
+
+async function updateCollectionBatchAfterRelease(tx: Tx, collectionBatchId: number) {
+  const remaining = await tx.collectionBatchItem.count({
+    where: { batch_id: collectionBatchId, item_status: "ACTIVE" },
+  });
+  const released = await tx.collectionBatchItem.count({
+    where: { batch_id: collectionBatchId, item_status: "RELEASED" },
+  });
+
+  await tx.collectionBatch.update({
+    where: { id: collectionBatchId },
+    data: {
+      status:
+        remaining === 0
+          ? "COMPLETED"
+          : released > 0
+            ? "IN_PROGRESS"
+            : "IN_PROGRESS",
+    },
+  });
+
+  return { remaining, released };
+}
+
+export async function releaseCollectionFromBatch(rawInput: unknown) {
+  const parsed = releaseCollectionFromBatchSchema.safeParse(rawInput);
+
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const input: ReleaseCollectionFromBatchInput = parsed.data;
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return { success: false, errors: { _form: ["Not authenticated"] } };
+  }
+
+  try {
+    const result = await db.$transaction(async (tx) => {
+      const collectionBatch = await tx.collectionBatch.findUnique({
+        where: { id: input.batchId },
+        select: { id: true, batch_no: true, batch_type: true, status: true },
+      });
+
+      if (!collectionBatch) throw new Error("Batch not found.");
+      if (
+        collectionBatch.status !== "ACTIVE" &&
+        collectionBatch.status !== "IN_PROGRESS"
+      ) {
+        throw new Error("Batch is no longer active.");
+      }
+
+      const item = await tx.collectionBatchItem.findUnique({
+        where: {
+          batch_id_collection_id: {
+            batch_id: input.batchId,
+            collection_id: input.collectionId,
+          },
+        },
+        include: {
+          collection: true,
+          workflow: { include: { collection: true, batch: true } },
+        },
+      });
+
+      if (!item) {
+        throw new Error("Collection no longer belongs to this batch.");
+      }
+      if (item.item_status === "RELEASED") {
+        throw new Error(`${ctnLabel(item)} has already been released from this batch.`);
+      }
+
+      const batchType = collectionBatch.batch_type as LabBatchType;
+      if (!isEligibleForBatchRelease(item, batchType)) {
+        throw new Error(`${ctnLabel(item)} is not eligible for release from batch.`);
+      }
+
+      const release = await applyReleaseTransition({ tx, item, batchType, userId: user.user_id });
+      const updated = await tx.collectionBatchItem.updateMany({
+        where: { id: item.id, item_status: "ACTIVE" },
+        data: {
+          item_status: "RELEASED",
+          release_result: release.result,
+          release_destination: release.destination,
+          released_at: new Date(),
+          released_by: user.user_id,
+        },
+      });
+      if (updated.count !== 1) {
+        throw new Error(`${ctnLabel(item)} has already been released from this batch.`);
+      }
+
+      const counts = await updateCollectionBatchAfterRelease(tx, input.batchId);
+
+      await tx.auditLog.create({
+        data: {
+          user_id: user.user_id,
+          action_details: `Released ${ctnLabel(item)} from collection batch ${collectionBatch.batch_no}`,
+        },
+      });
+
+      return {
+        batch_no: collectionBatch.batch_no,
+        ctn: ctnLabel(item),
+        released: 1,
+        remaining: counts.remaining,
+      };
+    });
+
+    revalidateLabSurfaces();
+    return { success: true, data: result };
+  } catch (err) {
+    return {
+      success: false,
+      errors: {
+        _form: [
+          err instanceof Error ? err.message : "Failed to release collection from batch.",
+        ],
+      },
+    };
+  }
+}
+
+export async function releaseEligibleCollectionsFromBatch(rawInput: unknown) {
+  const parsed = releaseEligibleCollectionsFromBatchSchema.safeParse(rawInput);
+
+  if (!parsed.success) {
+    return { success: false, errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const input: ReleaseEligibleCollectionsFromBatchInput = parsed.data;
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return { success: false, errors: { _form: ["Not authenticated"] } };
+  }
+
+  try {
+    const result = await db.$transaction(async (tx) => {
+      const collectionBatch = await tx.collectionBatch.findUnique({
+        where: { id: input.batchId },
+        include: {
+          items: {
+            include: {
+              collection: true,
+              workflow: { include: { collection: true, batch: true } },
+            },
+          },
+        },
+      });
+
+      if (!collectionBatch) throw new Error("Batch not found.");
+      if (
+        collectionBatch.status !== "ACTIVE" &&
+        collectionBatch.status !== "IN_PROGRESS"
+      ) {
+        throw new Error("Batch is no longer active.");
+      }
+
+      const batchType = collectionBatch.batch_type as LabBatchType;
+      const eligible = collectionBatch.items.filter((item) =>
+        isEligibleForBatchRelease(item, batchType)
+      );
+
+      if (eligible.length === 0) {
+        throw new Error(NO_ELIGIBLE_RELEASE_MESSAGE);
+      }
+
+      for (const item of eligible) {
+        const release = await applyReleaseTransition({ tx, item, batchType, userId: user.user_id });
+        const updated = await tx.collectionBatchItem.updateMany({
+          where: { id: item.id, item_status: "ACTIVE" },
+          data: {
+            item_status: "RELEASED",
+            release_result: release.result,
+            release_destination: release.destination,
+            released_at: new Date(),
+            released_by: user.user_id,
+          },
+        });
+        if (updated.count !== 1) {
+          throw new Error(`${ctnLabel(item)} has already been released from this batch.`);
+        }
+      }
+
+      const counts = await updateCollectionBatchAfterRelease(tx, input.batchId);
+
+      await tx.auditLog.create({
+        data: {
+          user_id: user.user_id,
+          action_details: `Released ${eligible.length} eligible collection(s) from collection batch ${collectionBatch.batch_no}`,
+        },
+      });
+
+      return {
+        batch_no: collectionBatch.batch_no,
+        released: eligible.length,
+        remaining: counts.remaining,
+      };
+    });
+
+    revalidateLabSurfaces();
+    return { success: true, data: result };
+  } catch (err) {
+    return {
+      success: false,
+      errors: {
+        _form: [
+          err instanceof Error
+            ? err.message
+            : "Failed to release eligible collections from batch.",
+        ],
+      },
+    };
+  }
+}
+
 function assertWorkflowCanBeSentToLab(
   item: Awaited<ReturnType<typeof getCollectionBatchItemsForUpdate>>[number],
   stage: "PRE_PASTEURIZATION" | "POST_PASTEURIZATION"
@@ -895,6 +1333,7 @@ async function getCollectionBatchItemsForUpdate(
     where: { id: collectionBatchId },
     include: {
       items: {
+        where: { item_status: "ACTIVE" },
         include: {
           collection: { select: { ctn: true, tracking_no: true } },
           workflow: {

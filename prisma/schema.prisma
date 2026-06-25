@@ -156,6 +156,7 @@ model User {
   supSupTodoWorkflows SupsupTodoDonationWorkflow[] @relation("SupsupWorkflowCreatedBy")
   supSupTodoWorkflowUpdates SupsupTodoDonationWorkflow[] @relation("SupsupWorkflowUpdatedBy")
   collectionBatches CollectionBatch[] @relation("CollectionBatchCreatedBy")
+  releasedCollectionBatchItems CollectionBatchItem[] @relation("CollectionBatchItemReleasedBy")
   createdMilkRequests MilkRequest[] @relation("MilkRequestCreatedBy")
   releasedMilkRequests MilkRequest[] @relation("MilkRequestReleasedBy")
   milkRequestAllocations MilkRequestAllocation[] @relation("MilkRequestAllocationCreatedBy")
@@ -383,15 +384,23 @@ model CollectionBatchItem {
   collection_id Int
   workflow_id   Int?
   ctn           String
+  item_status   String   @default("ACTIVE")
+  release_result String?
+  release_destination String?
+  released_at   DateTime?
+  released_by   Int?
   created_at    DateTime @default(now())
 
   batch      CollectionBatch @relation(fields: [batch_id], references: [id], onDelete: Cascade)
   collection Collection      @relation(fields: [collection_id], references: [ctn])
   workflow   SupsupTodoDonationWorkflow? @relation(fields: [workflow_id], references: [workflow_id])
+  releaser   User? @relation("CollectionBatchItemReleasedBy", fields: [released_by], references: [user_id])
 
   @@unique([batch_id, collection_id])
   @@index([collection_id])
   @@index([workflow_id])
+  @@index([batch_id, item_status])
+  @@index([released_by])
 }
 
 model LabResult {

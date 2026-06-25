@@ -23,6 +23,8 @@ import {
   bulkSetLabResultForBatch,
   bulkSetSentToLabForBatch,
   recordLabResult,
+  releaseCollectionFromBatch,
+  releaseEligibleCollectionsFromBatch,
   saveLabBatchSelection,
 } from "../actions";
 import {
@@ -431,6 +433,47 @@ function workflowCanReceiveLabResult(batch: LabBatchSummary, batchType: LabBatch
   }
 
   return false;
+}
+
+function workflowCanReleaseFromBatch(batch: LabBatchSummary, batchType: LabBatchType) {
+  const workflow = batch.supSupTodoWorkflow;
+  if (!workflow || batch.collection_batch_item_status === "RELEASED") return false;
+
+  if (batchType === "PRE_PSTR") {
+    return workflow.pre_lab_result === "PASS" || workflow.pre_lab_result === "FAIL";
+  }
+
+  if (batchType === "PSTR") {
+    return workflow.pre_lab_result === "PASS" && workflow.pasteurization_confirmed;
+  }
+
+  return workflow.post_lab_result === "PASS" || workflow.post_lab_result === "FAIL";
+}
+
+function batchOutcomeCounts(items: LabBatchSummary[], batchType: LabBatchType) {
+  let passed = 0;
+  let failed = 0;
+  let pending = 0;
+
+  for (const item of items) {
+    const workflow = item.supSupTodoWorkflow;
+    if (batchType === "PRE_PSTR") {
+      if (workflow?.pre_lab_result === "PASS") passed++;
+      else if (workflow?.pre_lab_result === "FAIL") failed++;
+      else pending++;
+    } else if (batchType === "PSTR") {
+      if (workflow?.pasteurization_confirmed) passed++;
+      else pending++;
+    } else if (workflow?.post_lab_result === "PASS") {
+      passed++;
+    } else if (workflow?.post_lab_result === "FAIL") {
+      failed++;
+    } else {
+      pending++;
+    }
+  }
+
+  return { passed, failed, pending, remaining: items.length };
 }
 
 function BulkSentToLabDialog({
@@ -1031,8 +1074,19 @@ function SavedCollectionBatchPanel({
   const [fullDetailsOpen, setFullDetailsOpen] = useState(false);
   const [bulkSentOpen, setBulkSentOpen] = useState(false);
   const [bulkResultOpen, setBulkResultOpen] = useState(false);
+  const [releaseTarget, setReleaseTarget] = useState<number | "bulk" | null>(null);
   const batchType = batch.collection_batch_type ?? "PRE_PSTR";
   const items = batch.collection_batch_items ?? [];
+  const isReadOnly =
+    batch.collection_batch_lifecycle === "COMPLETED" ||
+    batch.collection_batch_lifecycle === "CANCELLED";
+  const counts = batch.batch_summary ?? {
+    released: 0,
+    ...batchOutcomeCounts(items, batchType),
+  };
+  const releaseEligibleCount = items.filter((item) =>
+    workflowCanReleaseFromBatch(item, batchType)
+  ).length;
   const sentEligibleCount = items.filter((item) =>
     workflowCanBeSentToLab(item, batchType)
   ).length;
@@ -1055,6 +1109,57 @@ function SavedCollectionBatchPanel({
     }).format(new Date(date));
   }
 
+  async function handleReleaseEligible() {
+    if (!batch.collection_batch_id) return;
+    setReleaseTarget("bulk");
+    const response = await releaseEligibleCollectionsFromBatch({
+      batchId: batch.collection_batch_id,
+    });
+
+    if (response.success && response.data) {
+      const data = response.data;
+      if (data.released === 0) {
+        toast.info("No eligible records are ready to release.");
+      } else {
+        toast.success(
+          data.remaining === 0
+            ? `Released ${data.released} eligible record${data.released === 1 ? "" : "s"}. Batch completed.`
+            : `Released ${data.released} eligible record${data.released === 1 ? "" : "s"}. ${data.remaining} pending record${data.remaining === 1 ? "" : "s"} remain.`
+        );
+      }
+      await onBatchUpdated();
+    } else {
+      const firstError = Object.values(response.errors ?? {}).flat()[0];
+      if (firstError === "No eligible collections are ready to release from this batch.") {
+        toast.info("No eligible records are ready to release.");
+      } else {
+        toast.error(firstError ?? "Failed to release eligible records.");
+      }
+    }
+
+    setReleaseTarget(null);
+  }
+
+  async function handleReleaseOne(item: LabBatchSummary) {
+    if (!batch.collection_batch_id || !item.collection_id) return;
+    setReleaseTarget(item.collection_id);
+    const label = item.display_id ?? item.tracking_no ?? item.batch_code;
+    const response = await releaseCollectionFromBatch({
+      batchId: batch.collection_batch_id,
+      collectionId: item.collection_id,
+    });
+
+    if (response.success && response.data) {
+      toast.success(`${response.data.ctn ?? label} released from ${response.data.batch_no}.`);
+      await onBatchUpdated();
+    } else {
+      const firstError = Object.values(response.errors ?? {}).flat()[0];
+      toast.error(firstError ?? "Failed to release record from batch.");
+    }
+
+    setReleaseTarget(null);
+  }
+
   return (
     <div className="bg-background border border-border rounded-lg flex flex-col overflow-hidden">
       <div className="px-4 py-3 border-b border-border bg-muted flex justify-between items-start shrink-0">
@@ -1071,16 +1176,18 @@ function SavedCollectionBatchPanel({
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => setFullDetailsOpen(true)}
-            className="text-muted-foreground"
-            aria-label="Open full batch details"
-            title="Open full batch details"
-          >
-            <span className="text-[10px] font-semibold">Full</span>
-          </Button>
+          {!isReadOnly ? (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setFullDetailsOpen(true)}
+              className="text-muted-foreground"
+              aria-label="Open full batch details"
+              title="Open full batch details"
+            >
+              <span className="text-[10px] font-semibold">Full</span>
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="icon-xs"
@@ -1115,8 +1222,30 @@ function SavedCollectionBatchPanel({
               </span>
             </div>
           </div>
+          <div className="mt-3 grid grid-cols-5 gap-2">
+            {[
+              ["Released", counts.released],
+              ["Passed", counts.passed],
+              ["Failed", counts.failed],
+              ["Pending", counts.pending],
+              ["Remaining", counts.remaining],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-md border border-border/50 bg-muted/40 p-2"
+              >
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {label}
+                </p>
+                <p className="text-sm font-semibold text-foreground">{value}</p>
+              </div>
+            ))}
+          </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
             Created by {batch.creator_name}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Releases passed records to the next stage and failed records to disposal tracking. Pending records remain in the batch.
           </p>
         </section>
 
@@ -1127,8 +1256,35 @@ function SavedCollectionBatchPanel({
             <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">
               Included Collections
             </h4>
-            {showLabBatchActions ? (
-              <div className="flex gap-2">
+            {!isReadOnly ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="default"
+                size="xs"
+                className="text-[11px]"
+                disabled={
+                  !batch.collection_batch_id ||
+                  releaseEligibleCount === 0 ||
+                  releaseTarget === "bulk"
+                }
+                title={
+                  releaseEligibleCount === 0
+                    ? "No eligible records are ready to release."
+                    : undefined
+                }
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleReleaseEligible();
+                }}
+              >
+                {releaseTarget === "bulk" ? (
+                  <Loader2 className="mr-1 size-3 animate-spin" />
+                ) : null}
+                Release Eligible Records
+              </Button>
+              {showLabBatchActions ? (
+                <>
                 <Button
                   type="button"
                   variant="outline"
@@ -1165,8 +1321,16 @@ function SavedCollectionBatchPanel({
                 >
                   Set All Lab Result
                 </Button>
-              </div>
-            ) : null}
+                </>
+              ) : null}
+            </div>
+            ) : (
+              <Badge className="w-fit rounded border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                {batch.collection_batch_lifecycle === "COMPLETED"
+                  ? "Completed Batch"
+                  : "Cancelled Batch"}
+              </Badge>
+            )}
           </div>
           <div className="space-y-2">
             {items.map((item) => (
@@ -1194,11 +1358,55 @@ function SavedCollectionBatchPanel({
                     </span>
                   </div>
                 </div>
-                <RelevantBatchTracker
-                  batch={item}
-                  batchType={batchType}
-                  onSelectStep={setStepTarget}
-                />
+                {isReadOnly ? null : (
+                  <RelevantBatchTracker
+                    batch={item}
+                    batchType={batchType}
+                    onSelectStep={setStepTarget}
+                  />
+                )}
+                {item.collection_batch_item_status === "RELEASED" ? (
+                  <div className="rounded-md border border-border/50 bg-background/70 p-2 text-[10px] text-muted-foreground">
+                    Released to {item.release_destination ?? "next stage"}
+                    {item.released_at
+                      ? ` on ${new Intl.DateTimeFormat("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        }).format(new Date(item.released_at))}`
+                      : ""}
+                    {item.released_by_name ? ` by ${item.released_by_name}` : ""}
+                  </div>
+                ) : null}
+                {!isReadOnly ? (
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    className="text-[11px]"
+                    disabled={
+                      !workflowCanReleaseFromBatch(item, batchType) ||
+                      releaseTarget === item.collection_id
+                    }
+                    title={
+                      workflowCanReleaseFromBatch(item, batchType)
+                        ? undefined
+                        : "This record is not eligible to release yet."
+                    }
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleReleaseOne(item);
+                    }}
+                  >
+                    {releaseTarget === item.collection_id ? (
+                      <Loader2 className="mr-1 size-3 animate-spin" />
+                    ) : null}
+                    Release from Batch
+                  </Button>
+                </div>
+                ) : null}
               </div>
             ))}
             {items.length === 0 && (
@@ -1233,6 +1441,7 @@ function SavedCollectionBatchPanel({
         </Button>
       </div>
 
+      {!isReadOnly ? (
       <BatchFullDetailsDialog
         open={fullDetailsOpen}
         onOpenChange={setFullDetailsOpen}
@@ -1244,8 +1453,9 @@ function SavedCollectionBatchPanel({
         description={`${getLabBatchTypeMeta(batchType).label} · ${batch.collection_batch_status ?? "In Progress"}`}
         notes={batch.notes}
       />
+      ) : null}
 
-      {showLabBatchActions && batch.collection_batch_id ? (
+      {!isReadOnly && showLabBatchActions && batch.collection_batch_id ? (
         <>
           <BulkSentToLabDialog
             open={bulkSentOpen}
@@ -1266,6 +1476,7 @@ function SavedCollectionBatchPanel({
         </>
       ) : null}
 
+      {!isReadOnly ? (
       <StepActionDialog
         donorId={targetWorkflow?.donor_id ?? 0}
         target={stepTarget}
@@ -1276,6 +1487,7 @@ function SavedCollectionBatchPanel({
         workflow={targetWorkflow}
         eligibility={null}
       />
+      ) : null}
     </div>
   );
 }

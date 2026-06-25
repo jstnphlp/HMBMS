@@ -25,7 +25,10 @@ export const donorConsentSchema = z
 
 export const extractionSchema = z.object({
   extraction_completed_at: z.coerce.date(),
-  extracted_volume: z.coerce.number().positive(),
+  extracted_volume: z.coerce
+    .number()
+    .min(30, "Donation volume must be between 30 mL and 240 mL per session.")
+    .max(240, "Donation volume must be between 30 mL and 240 mL per session."),
   staff_notes: notesSchema,
 });
 
